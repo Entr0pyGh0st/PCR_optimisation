@@ -1,0 +1,221 @@
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN"
+	"http://www.w3.org/TR/html4/strict.dtd">
+<html lang="en">
+<head>
+	<meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+	<title>Virtual PCR Simulator</title>
+	<link rel="stylesheet" type="text/css" href="/static/style.css">
+	<link href="https://fonts.googleapis.com/css?family=Shrikhand" rel="stylesheet">
+	
+    <link rel="stylesheet" href="https://ajax.googleapis.com/ajax/libs/jqueryui/1.11.4/themes/smoothness/jquery-ui.css">
+    <link href="https://fonts.googleapis.com/css?family=Gloria+Hallelujah" rel="stylesheet">
+
+    <link rel="stylesheet" type="text/css" href="/static/simulator.css">
+
+</head>
+
+<body>
+
+<div id="page">
+
+<nav id="menu">
+
+<a href="#instructions">instructions</a>
+
+
+<input class="username" placeholder="set username" maxlength=20>
+</nav>
+
+<h1>Virtual PCR Simulator</h1>
+
+<div id="content">
+
+<div id="instructions" class="boxed">
+	<h2>Instructions</h2>
+	<p>Your PCR primers have arrived and you head into the lab to clone your
+	gene. The primers you have designed should amplify your 1kb target gene and
+	thankfully Prof. E. M. Eritus has sent you the gene already cloned into a
+	plasmid. Unfortunately, Prof. E. M. Eritus is a little Old School, and there
+	are no standard assembly methods flanking the gene for you to take advantage
+	of. You have therefore included the relevant restriction sites for
+	downstream cloning in the primers, and, whilst waiting for your primers, you
+	have prepared Prof. Eritus' plasmid. All you need to do is amplify it, move
+	it into your favourite expression vector and you can move on to some real
+	work.</p>
+
+	<p>You have access to two polymerases in the lab. The standard
+	<a href="https://www.neb.com/protocols/1/01/01/taq-dna-polymerase-with-standard-taq-buffer-m0273" target="_blank">NEB Taq polymerase</a>,
+	and <a href="https://www.neb.com/protocols/1/01/01/pcr-protocol-m0530" target="_blank">Phusion polymerase</a>. Each comes with its own buffer, and
+	slightly different instructions for running the PCR.
+	Your primer sequences are as follows:</p>
+
+	<p>Primers to amplify 1kb fragment from a 5 kb plasmid.</p>
+
+	<table>
+		<tr>
+			<th>Primer name</th>
+			<th>Primer Sequence</th>
+		</tr>
+		<tr>
+			<td>FWD1</td>
+			<td>GCAACGTGCTGGTTATTGTG</td>
+		</tr>
+		<tr>
+			<td>REV1</td>
+			<td>AGCGGATAACAATTTCACACAGG</td>
+		</tr>
+	</table>
+
+	<p>You have prepared your stock solutions as normal, and are ready to go.
+	Using the virtual PCR simulator, you set the volumes of the various reagents,
+	set your PCR conditions and clone that gene! Remember you want to maximise
+	yield and purity.</p>
+	<a href="#instructions" class="hide">Got it!</a>
+</div>
+
+<div id="simulator">
+<div id="simulation_controller" class="boxed">
+	<h2>Parameters</h2>
+
+	<form id="parameter_form" action="/pcr/" method="post">
+	<input type='hidden' name='csrfmiddlewaretoken' value='S5FtEiAzeFm1j2YxZKl0kRHXiwnRNqtP' />
+	<table>
+<tr><th>No. of cycles</th><td colspan="2"><span id="errors_cycles"></span><input id="id_cycles" max="100" min="1" name="cycles" type="number" value="15" /></td></tr>
+<tr><th>Denaturation</th><td colspan="2"><span id="errors_denaturation_temperature"></span><input id="id_denaturation_temperature" max="100" min="1" name="denaturation_temperature" step="any" type="number" value="80" /> &deg;C for  <span id="errors_denaturation_duration"></span> <input id="id_denaturation_duration" min="1" name="denaturation_duration" step="any" type="number" value="10" /> sec.</td></tr>
+<tr><th>Annealing</th><td colspan="2"><span id="errors_annealing_temperature"></span><input id="id_annealing_temperature" max="100" min="1" name="annealing_temperature" step="any" type="number" value="68" /> &deg;C for  <span id="errors_annealing_duration"></span> <input id="id_annealing_duration" min="1" name="annealing_duration" step="any" type="number" value="10" /> sec.</td></tr>
+<tr><th>Extension</th><td colspan="2"><span id="errors_extension_temperature"></span><input id="id_extension_temperature" max="100" min="1" name="extension_temperature" step="any" type="number" value="54" /> &deg;C for  <span id="errors_extension_duration"></span> <input id="id_extension_duration" min="1" name="extension_duration" step="any" type="number" value="20" /> sec.</td></tr>
+
+<!--tr><th>Buffer</th><td><input id="id_buffer_vol" name="buffer_vol" value="10" type="number" readonly class="readonly"> &mu;L</10></td></tr-->
+<input id="id_buffer_vol" name="buffer_vol" value="10" type="hidden" readonly>
+<tr>
+    <th>Each dNTP</th>
+    <td><span id="errors_dNTP_vol"></span><input id="id_dNTP_vol" max="20" min="0.2" name="dNTP_vol" step="any" type="number" value="0.5" /> &mu;L <sup>*</sup></td>
+    <td rowspan="5">
+    <div class="testtube">
+        <div name="testtube-bkg"></div>
+        <div name="testtube-water"></div>
+        <div name="testtube-buffer"></div>
+        <div name="testtube-dNTP"></div>
+        <div name="testtube-primer"></div>
+        <div name="testtube-polymerase"></div>
+        <div name="testtube-plasmid"></div>
+        <img src="/static/eppendorf.png">
+    </div>
+    </td>
+</tr>
+
+<tr>
+    <th>Each primer</th>
+    <td><span id="errors_primer_vol"></span><input id="id_primer_vol" max="20" min="0.2" name="primer_vol" step="any" type="number" value="1" /> &mu;L <sup>**</sup></td>
+</tr>
+<tr>
+    <th>Plasmid</th>
+    <td><span id="errors_plasmid_mass"></span><input id="id_plasmid_mass" max="100" min="0" name="plasmid_mass" step="any" type="number" value="50" /> ng</td>
+</tr>
+<tr>
+    <th>Polymerase</th>
+    <td><span id="errors_polymerase_vol"></span><input id="id_polymerase_vol" max="20" min="0.2" name="polymerase_vol" step="any" type="number" value="1" /> U</td>
+</tr>
+<tr>
+    <th>of</th>
+    <td><select id="id_polymerase" name="polymerase">
+<option value="Taq">Taq</option>
+<option value="Phusion">Phusion</option>
+</select></td>
+</tr>
+
+<tr>
+    <td colspan="3" id="errors__all__"></td>
+</tr>
+</table>
+
+<p>
+    <sup>&nbsp;(*)</sup> from 10.0 mM stock<br>
+    <sup>(**)</sup> from 10.0 uM stock
+</p>
+
+	<input type="submit" value="Run PCR" />
+	</form>
+</div>
+
+<div id="simulation_results" class="boxed">
+	<h2>Results</h2>
+
+	<div id="result_buttons">
+	
+	<input id="export" type="submit" value="Export" />
+	</div>
+
+	<div class="ui-accordion ui-widget ui-helper-reset">
+	<h3 class="ui-accordion-header ui-state-default ui-accordion-header-active ui-corner-top ui-accordion-icons">
+		<span name="run"></span>
+		<span name="yield">Yield&nbsp;[ng/&mu;L]</span>
+		<span name="purity">Purity</span>
+		<span name="time">Time&nbsp;[min]</span>
+	</h3>
+	<h3 class="ui-accordion-header ui-state-default ui-accordion-header-active ui-corner-top ui-accordion-icons">
+		<span name="run"></span>
+		<span name="yield" class="leaderboard"></span>
+		<span name="purity"  class="leaderboard"></span>
+		<span id="total_time">0</span>
+	</h3>
+	</div>
+	<div id="result_list"></div>
+</div>
+</div>
+
+<!-- ---- html templates ---- -->
+<div id="templates" style="display:none">
+
+<div class="result-sheet">
+	<img src="" class="gel_image">
+	<img src="" class="trajectory_image">
+	<div class="parameters">
+	<table>
+		<tr name="cycles"><td>cycles</td><td>-</td></tr>
+		<tr name="denaturation_temperature"><td>denat. temp (&deg;C)</td><td>-</td></tr>
+		<tr name="annealing_temperature"><td>anneal. temp (&deg;C)</td><td>-</td></tr>
+		<tr name="extension_temperature"><td>extension temp (&deg;C)</td><td>-</td></tr>
+		<tr name="denaturation_duration"><td>denat. time (s)</td><td>-</td></tr>
+		<tr name="annealing_duration"><td>anneal. time (s)</td><td>-</td></tr>
+		<tr name="extension_duration"><td>extension time (s)</td><td>-</td></tr>
+		<tr name="plasmid_mass"><td>plasmid (ng)</td><td>-</td></tr>
+		<tr name="primer_vol"><td>primers (&mu;L)</td><td>-</td></tr>
+		<tr name="dNTP_vol"><td>dNTP's (&mu;L)</td><td>-</td></tr>
+		<tr name="polymerase"><td>polymerase</td><td>-</td></tr>
+		<tr name="polymerase_vol"><td>polymerase conc. (U)</td><td>-</td></tr>
+	</table>
+	<a href="#" name="reset_parameters">return to these parameters</a>
+	</div>
+</div>
+
+<h3 class="result-header">
+	<span name="run"></span>
+	<span name="yield"></span>
+	<span name="purity"></span>
+	<span name="time"></span>
+</h3>
+
+</div>
+<!-- end html template -->
+
+</div>
+</div>
+
+<div id="footer">
+Fellermann H, Shirt-Ediss B, Kozyra JW, Linsley M, Lendrem DW, Howard T<br>
+<a href="https://doi.org/10.1101/415042" target="_blank">The PCR Simulator: an on-line application for teaching Design of Experiments and the polymerase chain reaction</a> (2018)
+</div>
+
+<script type="text/javascript" src="/static/jquery-3.1.0.min.js"></script>
+<script type="text/javascript" src="/static/js.cookie.js"></script>
+<script type="text/javascript" src="/static/script.js"></script>
+
+	<script type="text/javascript" src="/static/jquery-ui.min.js"></script> 
+	<script type="text/javascript" src="/static/simulator.js"></script>
+
+
+</body>
+</html>
