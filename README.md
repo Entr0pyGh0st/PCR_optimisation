@@ -10,7 +10,14 @@ Another subset of experimental designs use quasirandom sequences of numbers (low
 
 Ben Shirt-Ediss made https://virtual-pcr.ico2s.org/pcr/, an in silico model of a PCR reaction aimed at amplifying a 1kb DNA sequence by changing the parameterization of 12 different inputs. The source code can be found at https://bitbucket.org/ben_s_e/virtual-pcr-notebook/src/main/ .Understandeably, the fact that he coded a model means that one could derive the maximum output metrics (yield, product purity) numerically. However, he and I (as found in this repo), intended that the solution be found via experimental designs, for the sakes of learning about them.
 
-This repo seeks to interface his model with the pyDOE module, a python module for experimental designs, to provide an interactive approach to experimental design testing without going through the web server. 
+This repo seeks to interface his model with pyDOE, a python module for experimental designs, to provide an interactive approach to experimental design testing without going through the web server. 
 
 
 ## Current highscore: 1.066 mg/mL, 99.6% pure, 330 minute run
+
+------------------------------------------------------------------------------------------
+
+
+
+
+
