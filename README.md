@@ -12,10 +12,24 @@ Ben Shirt-Ediss made https://virtual-pcr.ico2s.org/pcr/, an in silico model of a
 
 This repo seeks to interface his model with pyDOE, a python module for experimental designs, to provide an interactive approach to experimental design testing without going through the web server. 
 
+------------------------------------------------------------------------------------------
 
-## Current highscore: 1.066 mg/mL, 99.6% pure, 330 minute run
+## Current highscore: 1.066 mg/mL, 99.6% pure, 330 minute run - 1024 run SOBOL sequence
 
 ------------------------------------------------------------------------------------------
+
+How to use:
+
+- Create a DataBall instance.
+
+- Call DataBall.DOE_import(sobol) -> imports a sobol design
+
+- input: number of runs for sobol design
+
+- Call DataBall.RUN()
+
+
+
 
 
 
