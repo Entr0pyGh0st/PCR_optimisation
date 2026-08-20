@@ -1,25 +1,6 @@
 """
 
-context: Fellerman H. et. al created https://virtual-pcr.ico2s.org/pcr/, a website that outputs the yield and the
-purity of a virtual Pcr reaction containing 12 modifiable parameters. The study of large parameter sets is
-facilitated by experimental designs which use aliasing to confound strictly independent parameters within a single
-test run.
 
-goal:
-
-Extract parameter information from https://virtual-pcr.ico2s.org/pcr/
-
-apply DoE methodology.
-
-submit the design for testing to the website.
-
-import the export out_file from the website.
-
-generate optimal predictive model.
-
-forecast factors for testing.
-
-repeat DoE methodology loop
 
 
 """
@@ -30,14 +11,14 @@ import pandas as pd
 import pyDOE
 import numpy as np
 import csv
+import time
 
 from pcrmachine import pcrparam
 from pcrmachine import pcrsim
 import matplotlib.pyplot as plt
 
+
 # -----
-
-
 
 
 def HTMLrequest(url: str):
@@ -58,9 +39,6 @@ def BSParse(html_file):
     inputDATA = inputTAG.find_all("input")
 
     return [inputDATA, optionTAG]
-
-
-
 
 
 def HTMLDataExtractor(lst, tag: str):
@@ -115,18 +93,7 @@ def HTMLDataExtractor(lst, tag: str):
     return data
 
 
-
-
-"""
-generates pandas.DataFrame object from data, row labels and column labels OF THEIR WEBSITE, NOT THE GIT FILES.
-
-can be used for continuous factors with min,max,current value input, data type attributes by passing these into rowlabels
-can be used for categorical factors by passing factor levels to rowlabels and setting categorical=True.
-
-"""
-
-
-def generatedataframe(data, rowlabels: list, columnlabels: list, categorical=False):
+def dataframe_generate(data, rowlabels: list, columnlabels: list, categorical=False):
     if not categorical:
         factorDF = pd.DataFrame(data, index=rowlabels, columns=columnlabels)
         factorDF.drop(factorDF.columns[[-1]], axis=1,
@@ -136,8 +103,6 @@ def generatedataframe(data, rowlabels: list, columnlabels: list, categorical=Fal
     elif categorical:
         factorDF = pd.DataFrame(data, columns=columnlabels)
     return factorDF
-
-
 
 
 """
@@ -193,16 +158,6 @@ def dataframe_to_pcr_format(df, row=2):
 """
 
 
-# ---------------------------------
-# >>>> functionality testing <<<<
-#  1. dataframe_to_pcr_format creates a pcrparam.PcRparam class object and feeds in a mapping out_file via **kwargs
-#  to instantiate the pcr simulation variables using the DataFrame object generated in generatedataframe() and not the native ones.
-
-# pcrObject = dataframe_to_pcr_format(factorinfoDF)
-# B = pcrsim.demo(pcrObject)
-
-# ---------------------------------
-
 def dataframe_update_values(factorDF, value_list: list):
     """
     takes value_list and updates the rows of the factorDF DataFrame object using dataframe.itterrows()
@@ -212,14 +167,10 @@ def dataframe_update_values(factorDF, value_list: list):
         if index == "value":
             for i in range((len(row))):
                 row[i] = value_list[i]
-            for keys in integer_factors:
-                row[integer_factors[keys]] = int(row[integer_factors[keys]])
+            # for keys in integer_factors:
+            # row[integer_factors[keys]] = int(row[integer_factors[keys]])
     return factorDF
 
-
-# -----
-# factorinfoDF = dataframe_update_values(factorinfoDF,newvalue_list)
-# -----
 
 def dataframe_extract(factorDF, data_attribute: str):
     """
@@ -235,7 +186,8 @@ def dataframe_extract(factorDF, data_attribute: str):
                 a.append(row[i])
     return a
 
-def sukharev(input_values, nr_factors, base, return_design=False, **kwargs):
+
+def sukharev(input_values, nr_factors, base, return_design=True, **kwargs):
     """
     takes a list of input values, computes a sukharev grid that's n_factors wide and base**n_factors long and returns
     the grid's ith column multiplied my the ith value of input_value.
@@ -258,23 +210,18 @@ def sukharev(input_values, nr_factors, base, return_design=False, **kwargs):
         return DOE_design, DOE_design2
 
 
-
-def sobol(min_values,max_values,runs,nr_factors,return_design=False,**kwargs):
-
+def sobol(data_package,return_design=True, **kwargs):
     """
-    :param input_values:
-    :param runs:
-    :param nr_factors:
-    :param return_design:
+    :param *args: [min_values,max_values,runs,nr_factors]
     :param kwargs:
-    :return:
+    :return: an updated DoE design and a boilerplate DoE design.
     """
 
-    DOE_design = pyDOE.sobol_sequence(runs, nr_factors)
-    DOE_design2 = pyDOE.sobol_sequence(runs, nr_factors)
+    DOE_design = pyDOE.sobol_sequence(data_package[2], data_package[3])
+    DOE_design2 = pyDOE.sobol_sequence(data_package[2], data_package[3])
 
-    for i in range(nr_factors):
-        DOE_design[:, i] *= max_values[i]
+    for i in range(data_package[3]):
+        DOE_design[:, i] *= data_package[1][i]
     if not return_design:
         return DOE_design
     else:
@@ -286,6 +233,8 @@ def update_DOEmatrix_datatypes_int64(DOE_matrix, **kwargs):
     takes the DOE_matrix in np.array64, takes a {factor_name:column_index} dictionary, and changes
     the DOE_matrix[:column_index] to data_type ("int","np.int32","np.int64")
 
+        ## NUMPY DOESNT ALLOW DIFFERENT COLUMN FORMATS. HOW DID THIS EVEN WORK BEFORE? ##
+
     :param DOE_matrix: updated DOE design
     :param data_type:"int" OR "np.int32" OR "np.int64"
     :param kwargs: {factor_name:column_index}
@@ -296,40 +245,14 @@ def update_DOEmatrix_datatypes_int64(DOE_matrix, **kwargs):
             DOE_matrix[int(rows), kwargs[keys]].astype(np.int64)
     return DOE_matrix
 
-
-def DOE_simulation(DOE_matrix, factorDF, hard_limit=None):
-    """
-    takes the formatted DOE matrix, takes the test values of the ith row of the DOE matrix and updates the factorDF
-     dataframe object, converts the data from the dataframe format to pcr format, pushes the data into the pcr simulator.
-     if **Kwargs = {"hard_limit": integer}, only integer rows of the DOE matrix will be used.
-    :param DOE_matrix: updated DOE_design
-    :param factorDF:  factorinfoDF matrix
-    :param kwargs:
-    :return:
-    """
-    results = {}
-    ticker = 0
-    if type(hard_limit) == int:
-        DOE_matrix = DOE_matrix[:hard_limit, :]  # truncates the DoE design
-    for rows in DOE_matrix:
-        test_run = dataframe_update_values(factorDF, rows)
-        test_run = dataframe_to_pcr_format(test_run)
-
-        a = pcrsim.demo(test_run)
-        results[len(results.keys())] = a
-        ticker += 1
-        print(ticker, " out of", len((DOE_matrix)))
-    return results
-
-
-
-def save_data_to_list(DOE_output):
+def DOE_results_to_list(DOE_output):
     result_yield = []
     result_purity = []
     result_amplificationpct = []
     result_duration = []
 
-    for b in DOE_output[0].keys(): # DOE output is a dictionary, whose keys are the run nr. and the values a dictionary.
+    for b in DOE_output[
+        0].keys():  # DOE output is a dictionary, whose keys are the run nr. and the values a dictionary.
         if b == "yield":
             for run_nr in DOE_output:
                 result_yield.append(DOE_output[run_nr][b])
@@ -344,17 +267,16 @@ def save_data_to_list(DOE_output):
                 result_duration.append(DOE_output[run_nr][b])
 
     global data_by_rows, data_by_columns
-    data_by_columns = [result_yield,result_purity,result_amplificationpct,result_duration]
-    data_by_rows = list(map(list,zip(*data_by_columns)))
+    data_by_columns = [result_yield, result_purity, result_amplificationpct, result_duration]
+    data_by_rows = list(map(list, zip(*data_by_columns)))
 
 
-def save_data_to_csv(data,filename,factorinfoDF,DOE_matrix):
-
+def save_data_to_csv(data, filename, factorinfoDF, DOE_matrix):
     csvheader = list(factorinfoDF.columns)
     for row in output_labels:
         csvheader.append(row)
 
-    csvbody = np.concatenate([DOE_matrix,data],axis=1)
+    csvbody = np.concatenate([DOE_matrix, data], axis=1)
 
     out_file = open(filename, "w", newline="")
     writer = csv.writer(out_file)
@@ -372,18 +294,18 @@ def save_data_to_csv(data,filename,factorinfoDF,DOE_matrix):
 
 
 def show_plots_outputs(data):
-
     fg, axs = plt.subplots(nrows=2, ncols=2, figsize=(5.5, 3.5), layout="constrained")
-    x_axis = [str(i) for i in range(len(data[0]))] ## any result out_file goes really
+    x_axis = [str(i) for i in range(len(data[0]))]  ## any result out_file goes really
 
-    axs[0, 0].scatter(x_axis, data[0],marker=".")
-    axs[0, 1].scatter(x_axis,data[1])
-    axs[1, 0].scatter(x_axis,data[2])
+    axs[0, 0].scatter(x_axis, data[0], marker=".")
+    axs[0, 1].scatter(x_axis, data[1])
+    axs[1, 0].scatter(x_axis, data[2])
     axs[1, 1].scatter(x_axis, data[3])
 
     plt.show()
 
-def show_plots_byFactor(DOE_matrix,data,column=1):
+
+def show_plots_byFactor(DOE_matrix, data, column=1):
     counter = 0
 
     fg, axs = plt.subplots(nrows=4, ncols=3, figsize=(5.5, 3.5), layout="constrained")
@@ -392,77 +314,172 @@ def show_plots_byFactor(DOE_matrix,data,column=1):
 
     for row in range(len(axs)):
         for column in range(len(axs[row])):
-            x_axis = DOE_matrix[:,counter]
-            axs[row,column].scatter(x_axis,y_axis)
-            axs[row,column].set_title(factorList[counter])
-            counter +=1
+            x_axis = DOE_matrix[:, counter]
+            axs[row, column].scatter(x_axis, y_axis)
+            axs[row, column].set_title(factorList[counter])
+            counter += 1
 
     plt.show()
 
-#show_plots_outputs()
+
+# show_plots_outputs()
+
+class DataBall:
+    """
+    dataBall is a data handler and repository for any DoE campaign.
+    it holds:
+        - data on starting parameters.
+        - data on boilerplate and updated DoE designs.
+        - data on simulated DoE runs.
+        -
+    Instantiates, formats and holds starting parameter information.
+    Instantiates, formats and holds DoE designs and parametrized DoE designs (i.e. DoE matrix).
+
+    """
+
+    def __init__(self):
+        self.HTMLfile = open("C:/Users/gonca/Desktop/Python/PcrOptimiser/VirtualPCRSimulator.html")
+        self.continuousFactors, self.categoricalFactors = BSParse(self.HTMLfile)
+
+        self.factor_names = HTMLDataExtractor(self.continuousFactors, "name")  # extracts names from the website but these are different from the source documentation
+        self.factor_count = len(self.factor_names)
+        self.factor_attributes = ["min", "max", "value", "type"]
+        self.factor_min = HTMLDataExtractor(self.continuousFactors, "min")
+        self.factor_max = HTMLDataExtractor(self.continuousFactors, "max")
+        self.factor_setvalues = HTMLDataExtractor(self.continuousFactors, "value")
+        self.factor_datatype = HTMLDataExtractor(self.continuousFactors, "type")
+        self.factor_polymerase = HTMLDataExtractor(self.continuousFactors, "value")
+        self.factor_class_integers = {"id_cycles": 0}
+        self.datapackage = [self.factor_min, self.factor_max, self.factor_setvalues, self.factor_datatype]
+
+        self.factor_DF = dataframe_generate(self.datapackage, self.factor_attributes, self.factor_names)
+        self.factor_names = [factors for factors in self.factor_DF.columns] # updates factor names with the true ones.
+
+        self.DOE_cache = []  # Structure: [ [index:int,"DOE_<version> - <DOE_design>", NxM matrix:list of lists] ]
+        self.DOE_version = 0
+        self.DOE_active_pointer = 0
+    def function_mapping(self, function):
+        function_map = \
+            {sobol: [self.factor_min, self.factor_max, int(input("How many runs for the sobol?")), self.factor_count],
+             sukharev: [],
+
+             }
+        return function_map[function]
+
+    def DOE_import(self, design, self_data=True, **kwargs):
+        """
+        Takes in a function via the design variable.
+        Passes the function into function_mapping() to collect the arguments to pass into itself.
+        Creates self."design<version>" variable to hold the updated DoE matrix, in int64 format.
+        Creates self."design<version>.1" variable to hold the boilerplate DoE matrix.
+        Caches the design and primes the DoE into the system (via pointer)
+        """
+
+        self.DOE_version += 1
+        self.DOE_active_pointer = self.DOE_version
+
+        if self_data:
+            data_package = self.function_mapping(design)
+            setattr(self, design.__name__ + str(self.DOE_version),  update_DOEmatrix_datatypes_int64(design(data_package)[0], **self.factor_class_integers))
+            setattr(self, design.__name__ + str(self.DOE_version) + "a", design(data_package)[1])
+
+        print(self.__class__.__name__,":",design.__name__ + str(self.DOE_version), "generated")
+        print(self.__class__.__name__,":",design.__name__ + str(self.DOE_version) + "a","generated ---> blank matrix")
+
+        self.DOE_cache.append([self.DOE_version,design.__name__+str(self.DOE_version), getattr(self, design.__name__ + str(self.DOE_version))])
+        self.DOE_active = getattr(self, design.__name__ + str(self.DOE_version))
+
+        if not self_data:
+            pass
+
+    def DOE_current_design(self, change=""):
+        """
+        Returns the DOE designs in cache to the user.
+        passing an integer allows the user to choose which DoE design to prime into the system (via pointer).
+        :return:
+        """
+        if change == "":
+            for row_nr in range(len(self.DOE_cache)):
+                print("DOE nr.: {0} // name: {1}".format(self.DOE_cache[row_nr][0], self.DOE_cache[row_nr][1]))
+            print("Active DOE: >>{}<<".format(self.DOE_active_pointer))
+            return
+
+        try:
+            change_int = int(change)
+        except ValueError:
+            print("Invalid input: expected an integer or empty string")
+            return
+
+        try:
+            self.DOE_active = self.DOE_cache[change_int - 1][2] # DOE cache has the matrix in index 2.
+            self.DOE_active_pointer = change_int
+        except IndexError:
+            print("That index is out of bounds")
+
+    def RUN(self, **kwargs):
+        """
+        Runs Ben's PCR simulator.
+        Runs the DOE design assigned by the pointer.
+
+        :param recent_design:
+        :param args:
+        :return:
+        """
+        results = []
+        try:
+            if kwargs["hard_limit"] == int:
+                DOE_matrix = self.DOE_active
+                DOE_matrix = DOE_matrix[:kwargs["hard_limit"], :]  # truncates the DoE design
+        except:
+            pass
+        for rows in self.DOE_active:
+            test_run = dataframe_update_values(self.factor_DF, rows)
+            test_run = dataframe_to_pcr_format(test_run)
+
+            results.append(pcrsim.demo(test_run))
+            print("{0} out of {1}".format(len(results),len(self.DOE_active)))
+
+        setattr(self,self.DOE_cache[self.DOE_active_pointer][1]+"_data", results)
+
+
+
+
+    def collect(self, function, new_variable_names):
+        """
+        receives a function and labels the outputs according to pre-defined instructions.
+        :param function: any function
+        :param kwargs: dict with .values() for labelling the function outputs
+        :return: self.values()
+        """
+        if "dataframe" in function.__name__.lower():
+            function.__call__()
+            pass
 
 
 ## script execution ----------------------------------
 
-# Website data extraction: take out factors and the min,max and current values
-# url = "https://virtual-pcr.ico2s.org/pcr/"
-local = open("C:/Users/gonca/Desktop/Python/PcrOptimiser/VirtualPCRSimulator.html")
+Experimental_design1 = DataBall() # creates the DataBall object
 
-# Extracts all factors from the website in HTML:TAG format
-# ws = HTMLrequest(url)
-continuousFactors, categoricalFactors = BSParse(local)
+Experimental_design1.DOE_import(sobol) # creates an DOE design
+Experimental_design1.RUN() # runs the DOE design
 
-# Extracts and separates data from each factor into individual Lists
-attributeList = ["min", "max", "value", "type"]
-factorList = HTMLDataExtractor(continuousFactors, "name")  # extracts names of factors
-minList = HTMLDataExtractor(continuousFactors, "min")  # extracts min values of factors
-maxList = HTMLDataExtractor(continuousFactors, "max")  # extracts max value of factors
-valueList = HTMLDataExtractor(continuousFactors, "value")
-typeList = HTMLDataExtractor(continuousFactors, "type")  # extracts value type of factors
-polymeraseList = HTMLDataExtractor(categoricalFactors, "value")
-
-# defines which factors are integers.
-integer_factors = {"id_cycles": 0}  # maps the position of id_cycles to its index in whatever list above.
-
-# lists all factor data
-factorInfo = [minList,maxList,valueList,typeList]
-
-#  Generates a pd.Dataframe for continuous factors and categorical factors
-factorinfoDF = generatedataframe(factorInfo, attributeList, factorList)
-factorinfoDFcat = generatedataframe(polymeraseList, "", ["id_polymerase"],categorical=True)  # generates working table for cat. factors
-
-# Generates the DoE designs
-sukharev_matrix = sukharev(maxList, len(maxList), 2)
-sobol_matrix = sobol(minList,maxList,1200,12)
-
-# Updates the data type of the DoE designs.
-sukharev_matrix = update_DOEmatrix_datatypes_int64(sukharev_matrix, **integer_factors)
-sobol_matrix = update_DOEmatrix_datatypes_int64(sobol_matrix, **integer_factors)
-
-# Runs the DoE simulation.
-#RUN = DOE_simulation(sukharev_matrix, factorinfoDF, hard_limit=5)
-RUN = DOE_simulation(sobol_matrix, factorinfoDF,hard_limit=3)
 
 
 # saves output data into 2 lists: 1 by row (i.e. run nr. in row) 1 by column (i.e. run nr. by column)
-output_labels = ["DNA yield (ng/uL)","DNA Purity (%)","x amplification","duration (s)"]
+output_labels = ["DNA yield (ng/uL)", "DNA Purity (%)", "x amplification", "duration (s)"]
 data_by_rows = []
 data_by_columns = []
-save_data_to_list(RUN)
+# save_data_to_list(RUN)
 
 # appends output data to bottom of the csv file.
-#save_data_to_csv(data_by_rows,"run_results.csv",factorinfoDF,sobol_matrix)
+# save_data_to_csv(data_by_rows,"run_results.csv",factorinfoDF,sobol_matrix)
 
 ## script execution ----------------------------------
 
-#test_sobol_matrix = pyDOE.sobol_sequence(50,12)
-#test_sobol_matrix =sobol(minList,maxList,50,12)
-#test_sobol_matrix = update_DOEmatrix_datatypes_int64(test_sobol_matrix,**integer_factors)
-#RUN3 = DOE_simulation(test_sobol_matrix,factorinfoDF,hard_limit=3)
-#save_data_to_list(RUN3)
-#show_plots_byFactor(test_sobol_matrix,data=data_by_columns)
-#show_plots_outputs(data=data_by_columns)
-
-
-
-
+# test_sobol_matrix = pyDOE.sobol_sequence(50,12)
+# test_sobol_matrix =sobol(minList,maxList,50,12)
+# test_sobol_matrix = update_DOEmatrix_datatypes_int64(test_sobol_matrix,**integer_factors)
+# RUN3 = DOE_simulation(test_sobol_matrix,factorinfoDF,hard_limit=3)
+# save_data_to_list(RUN3)
+# show_plots_byFactor(test_sobol_matrix,data=data_by_columns)
+# show_plots_outputs(data=data_by_columns)
