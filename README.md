@@ -12,10 +12,47 @@ Ben Shirt-Ediss made https://virtual-pcr.ico2s.org/pcr/, an in silico model of a
 
 This repo seeks to interface his model with pyDOE, a python module for experimental designs, to provide an interactive approach to experimental design testing without going through the web server. 
 
+------------------------------------------------------------------------------------------
 
-## Current highscore: 1.066 mg/mL, 99.6% pure, 330 minute run
+## Current highscore: 1.066 mg/mL, 99.6% pure, 330 minute run - 1024 run SOBOL sequence
 
 ------------------------------------------------------------------------------------------
+
+**How to use:**
+
+- Create a DataBall instance.
+
+- Call DataBall.DOE_import(sobol) -> imports a sobol design
+
+- input: number of runs for sobol design
+
+- Call DataBall.RUN()
+
+
+**userguide:**
+
+instantiating DataBall collects all factors and their data from the PCR simulator, whilst also generating a DataBall.factor_DF DataFrame for organisation purposes.
+
+DataBall.DOE_import(sobol) runs the sobol design function with the required parameters within DataBall. DataBall.Function_Mapping is called to map the function to it's function call parameters.
+
+DataBall.DOE_import(sobol) creates a DataBall.sobol1 (test levels updated) and a DataBall.sobol1a variable (boilerplate matrix)
+
+DataBall.DOE_import(sobol) also caches DataBall.sobol1.
+
+Recursively calling the prior function creates and caches DataBall.sobol2, sobol3, sobol4 etc... You can customise the sobol design with each call (currently it's just run nr.)
+
+DataBall.DOE_current_design() shows you what's in the DOE cache and what DOE you have selected for testing. 
+
+DataBall.DOE_current_design(change=int) changes the active DOE design to one from the cache.
+
+DataBall.RUN() Takes each row of the selected DOE, passes it into DataBall.factor_DF, formats it for the PCR simulation, runs the PCR simulation for all the rows in the selected DOE. **kwargs accepts {"hard_limit" = integer} to truncate the DOE design, for development reasons. 
+
+
+**Planned tasks:**
+- Migrate functions for DOE run data collection into DataBall
+- Update and upgrade functions for DOE data visualisation to accept DataBall compatibility
+- Update and upgrade functions for locally saving data to accept DataBall compatibility
+
 
 
 
