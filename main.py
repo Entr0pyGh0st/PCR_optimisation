@@ -1,9 +1,4 @@
-"""
 
-
-
-
-"""
 
 from urllib.request import urlopen, Request
 from bs4 import BeautifulSoup
@@ -39,7 +34,6 @@ def BSParse(html_file):
     inputDATA = inputTAG.find_all("input")
 
     return [inputDATA, optionTAG]
-
 
 def HTMLDataExtractor(lst, tag: str):
     """
@@ -130,33 +124,25 @@ Note3: hold_tc and hold_sec are fixed.
 """
 
 
-def dataframe_to_pcr_format(df, row=2):
+def dataframe_to_pcr_format(row):
     """
     takes a pd.DataFrame out_file and maps it back into the accepted format of the pcrparam object of pcrparam.py
     format conversion is necessary to seamlessly use pcrsim.py and call the pcr run simulation later on.
     row=2 extracts the base values of factorinfoDF and can be iterated upon to receive the ith row of the DOE design.
     """
     mapping_file = {
-        "thermocycle_repeats": df.loc[:, "cycles"][row],
-        "thermocycle_Tc": [df.loc[:, "denaturation_temperature"][row], df.loc[:, "annealing_temperature"][row],
-                           df.loc[:, "extension_temperature"][row]],
-        "thermocycle_sec": [df.loc[:, "denaturation_duration"][row], df.loc[:, "annealing_duration"][row],
-                            df.loc[:, "extension_duration"][row]],
-        "PT0_vol": df.loc[:, "topprimer_vol"][row],
-        "PB0_vol": df.loc[:, "bottomprimer_vol"][row],
-        "dNTP_vol": df.loc[:, "dNTP_vol"][row],
-        "Plasmid_mass_ng": df.loc[:, "plasmid_mass"][row],
-        "E_Units": df.loc[:, "polymerase_vol"][row]}
+        "thermocycle_repeats": row[0],
+        "thermocycle_Tc": [row[1], row[3], row[5]],
+        "thermocycle_sec": [row[2], row[4], row[6]],
+        "PT0_vol": row[7],
+        "PB0_vol": row[9],
+        "dNTP_vol": row[8],
+        "Plasmid_mass_ng": row[10],
+        "E_Units": row[11]}
 
     pcr_object = pcrparam.PCRparam(**mapping_file)
 
     return pcr_object
-
-
-"""    for keys in mapping_file:
-        setattr(pcr_object,keys,mapping_file[keys])
-"""
-
 
 def dataframe_update_values(factorDF, value_list: list):
     """
@@ -170,22 +156,6 @@ def dataframe_update_values(factorDF, value_list: list):
             # for keys in integer_factors:
             # row[integer_factors[keys]] = int(row[integer_factors[keys]])
     return factorDF
-
-
-def dataframe_extract(factorDF, data_attribute: str):
-    """
-    takes the factorinfoDF dataframe and returns the row labelled data_attribute.
-    :param factorDF:  factorinfoDF DataFrame
-    :param data_attribute: row label ("min","max,"value","type")
-    :return: list of row values
-    """
-    a = []
-    for index, row in factorDF.iterrows():
-        if index == data_attribute:
-            for i in range((len(row))):
-                a.append(row[i])
-    return a
-
 
 def sukharev(input_values, nr_factors, base, return_design=True, **kwargs):
     """
@@ -209,7 +179,6 @@ def sukharev(input_values, nr_factors, base, return_design=True, **kwargs):
     else:
         return DOE_design, DOE_design2
 
-
 def sobol(data_package,return_design=True, **kwargs):
     """
     :param *args: [min_values,max_values,runs,nr_factors]
@@ -227,7 +196,6 @@ def sobol(data_package,return_design=True, **kwargs):
     else:
         return DOE_design, DOE_design2
 
-
 def update_DOEmatrix_datatypes_int64(DOE_matrix, **kwargs):
     """
     takes the DOE_matrix in np.array64, takes a {factor_name:column_index} dictionary, and changes
@@ -244,54 +212,6 @@ def update_DOEmatrix_datatypes_int64(DOE_matrix, **kwargs):
         for rows in DOE_matrix[:, kwargs[keys]]:
             DOE_matrix[int(rows), kwargs[keys]].astype(np.int64)
     return DOE_matrix
-
-def DOE_results_to_list(DOE_output):
-    result_yield = []
-    result_purity = []
-    result_amplificationpct = []
-    result_duration = []
-
-    for b in DOE_output[
-        0].keys():  # DOE output is a dictionary, whose keys are the run nr. and the values a dictionary.
-        if b == "yield":
-            for run_nr in DOE_output:
-                result_yield.append(DOE_output[run_nr][b])
-        if b == "purity":
-            for run_nr in DOE_output:
-                result_purity.append(DOE_output[run_nr][b])
-        if b == "times_amplification":
-            for run_nr in DOE_output:
-                result_amplificationpct.append(DOE_output[run_nr][b])
-        if b == "runtime_sec":
-            for run_nr in DOE_output:
-                result_duration.append(DOE_output[run_nr][b])
-
-    global data_by_rows, data_by_columns
-    data_by_columns = [result_yield, result_purity, result_amplificationpct, result_duration]
-    data_by_rows = list(map(list, zip(*data_by_columns)))
-
-
-def save_data_to_csv(data, filename, factorinfoDF, DOE_matrix):
-    csvheader = list(factorinfoDF.columns)
-    for row in output_labels:
-        csvheader.append(row)
-
-    csvbody = np.concatenate([DOE_matrix, data], axis=1)
-
-    out_file = open(filename, "w", newline="")
-    writer = csv.writer(out_file)
-
-    in_file = open(filename, "r", newline="")
-    reader = csv.reader(in_file)
-    old_data = list(reader)
-    in_file.close()
-
-    for row in old_data:
-        writer.writerow(row)
-    writer.writerows(csvheader)
-    writer.writerows(csvbody)
-    out_file.close()
-
 
 def show_plots_outputs(data):
     fg, axs = plt.subplots(nrows=2, ncols=2, figsize=(5.5, 3.5), layout="constrained")
@@ -342,7 +262,6 @@ class DataBall:
         self.continuousFactors, self.categoricalFactors = BSParse(self.HTMLfile)
 
         self.factor_names = HTMLDataExtractor(self.continuousFactors, "name")  # extracts names from the website but these are different from the source documentation
-        self.factor_count = len(self.factor_names)
         self.factor_attributes = ["min", "max", "value", "type"]
         self.factor_min = HTMLDataExtractor(self.continuousFactors, "min")
         self.factor_max = HTMLDataExtractor(self.continuousFactors, "max")
@@ -354,10 +273,42 @@ class DataBall:
 
         self.factor_DF = dataframe_generate(self.datapackage, self.factor_attributes, self.factor_names)
         self.factor_names = [factors for factors in self.factor_DF.columns] # updates factor names with the true ones.
+        self.factor_count = len(self.factor_names)
 
         self.DOE_cache = []  # Structure: [ [index:int,"DOE_<version> - <DOE_design>", NxM matrix:list of lists] ]
         self.DOE_version = 0
         self.DOE_active_pointer = 0
+
+    def data(self): # returns what the active pointer is looking at
+        return getattr(self, self.DOE_cache[self.DOE_active_pointer - 1][1] + "_data")
+
+    def design(self):
+        return getattr(self, self.DOE_cache[self.DOE_active_pointer -1][1])
+    def saveToDirectory(self):
+            filename = "run_results.csv"
+            csvheader = self.factor_names + list(self.data().columns)
+            csvbody = np.concatenate([self.design(), self.data()], axis=1)
+
+            out_file = open(filename, "w", newline="")
+            writer = csv.writer(out_file)
+
+            in_file = open(filename, "r", newline="")
+            reader = csv.reader(in_file)
+            old_data = list(reader)
+            in_file.close()
+
+            for row in old_data:
+                writer.writerow(row)
+            writer.writerows(csvheader)
+            writer.writerows(csvbody)
+            out_file.close()
+    def importFromDirectory(self):
+        """
+        Grabs the .csv in the local directory, finds the most recent data, re-assigns self.<design> and self.<design>_data
+        :return:
+        """
+
+
     def function_mapping(self, function):
         function_map = \
             {sobol: [self.factor_min, self.factor_max, int(input("How many runs for the sobol?")), self.factor_count],
@@ -387,10 +338,36 @@ class DataBall:
         print(self.__class__.__name__,":",design.__name__ + str(self.DOE_version) + "a","generated ---> blank matrix")
 
         self.DOE_cache.append([self.DOE_version,design.__name__+str(self.DOE_version), getattr(self, design.__name__ + str(self.DOE_version))])
-        self.DOE_active = getattr(self, design.__name__ + str(self.DOE_version))
+        self.DOE_active = pd.DataFrame(getattr(self, design.__name__ + str(self.DOE_version)),columns=self.factor_names)
+
+        self.DOE_active = self.DOE_active.astype({"cycles": int})
+        self.DOE_active = self.DOE_active.astype({"cycles": "Int64"})
+
 
         if not self_data:
             pass
+
+    def DOE_extract_data(self,data):
+
+        output_labels = ["DNA yield (ng/uL)", "DNA Purity (%)", "x amplification", "duration (s)"]
+
+        result_yield = []
+        result_purity = []
+        result_amplificationpct = []
+        result_duration = []
+
+        for run in data: #DATA is a list of dictionaries.
+            result_yield.append(run["yield"])
+            result_purity.append(run["purity"])
+            result_amplificationpct.append(run["times_amplification"])
+            result_duration.append(run["runtime_sec"])
+
+        data_in_columns = [result_yield, result_purity, result_amplificationpct, result_duration]
+        data_in_rows = list(map(list,zip(*data_in_columns)))
+
+        data_in_rows = pd.DataFrame(data_in_rows,columns=output_labels)
+
+        return data_in_rows
 
     def DOE_current_design(self, change=""):
         """
@@ -426,23 +403,20 @@ class DataBall:
         :return:
         """
         results = []
+        DOE_matrix = self.DOE_active
         try:
-            if kwargs["hard_limit"] == int:
-                DOE_matrix = self.DOE_active
-                DOE_matrix = DOE_matrix[:kwargs["hard_limit"], :]  # truncates the DoE design
+            if type(kwargs["hard_limit"]) == int:
+                DOE_matrix = DOE_matrix.iloc[:kwargs["hard_limit"], :]  # truncates the DoE design
         except:
             pass
-        for rows in self.DOE_active:
-            test_run = dataframe_update_values(self.factor_DF, rows)
-            test_run = dataframe_to_pcr_format(test_run)
-
+        for rows in DOE_matrix.values:
+            test_run = dataframe_to_pcr_format(rows)
             results.append(pcrsim.demo(test_run))
             print("{0} out of {1}".format(len(results),len(self.DOE_active)))
 
-        setattr(self,self.DOE_cache[self.DOE_active_pointer][1]+"_data", results)
+        table_DF = self.DOE_extract_data(results)
 
-
-
+        setattr(self,self.DOE_cache[self.DOE_active_pointer-1][1]+"_data", table_DF)
 
     def collect(self, function, new_variable_names):
         """
@@ -458,20 +432,15 @@ class DataBall:
 
 ## script execution ----------------------------------
 
-Experimental_design1 = DataBall() # creates the DataBall object
+a = DataBall() # creates the DataBall object
 
-Experimental_design1.DOE_import(sobol) # creates an DOE design
-Experimental_design1.RUN() # runs the DOE design
+a.DOE_import(sobol) # creates an DOE design
+a.RUN(hard_limit=5) # runs the DOE design
 
 
 
 # saves output data into 2 lists: 1 by row (i.e. run nr. in row) 1 by column (i.e. run nr. by column)
-output_labels = ["DNA yield (ng/uL)", "DNA Purity (%)", "x amplification", "duration (s)"]
-data_by_rows = []
-data_by_columns = []
-# save_data_to_list(RUN)
 
-# appends output data to bottom of the csv file.
 # save_data_to_csv(data_by_rows,"run_results.csv",factorinfoDF,sobol_matrix)
 
 ## script execution ----------------------------------
