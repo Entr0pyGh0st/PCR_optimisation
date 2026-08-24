@@ -1,5 +1,3 @@
-
-
 from urllib.request import urlopen, Request
 from bs4 import BeautifulSoup
 import pandas as pd
@@ -7,6 +5,7 @@ import pyDOE
 import numpy as np
 import csv
 import time
+import os
 
 from pcrmachine import pcrparam
 from pcrmachine import pcrsim
@@ -34,6 +33,7 @@ def BSParse(html_file):
     inputDATA = inputTAG.find_all("input")
 
     return [inputDATA, optionTAG]
+
 
 def HTMLDataExtractor(lst, tag: str):
     """
@@ -144,6 +144,7 @@ def dataframe_to_pcr_format(row):
 
     return pcr_object
 
+
 def dataframe_update_values(factorDF, value_list: list):
     """
     takes value_list and updates the rows of the factorDF DataFrame object using dataframe.itterrows()
@@ -156,6 +157,7 @@ def dataframe_update_values(factorDF, value_list: list):
             # for keys in integer_factors:
             # row[integer_factors[keys]] = int(row[integer_factors[keys]])
     return factorDF
+
 
 def sukharev(input_values, nr_factors, base, return_design=True, **kwargs):
     """
@@ -179,7 +181,8 @@ def sukharev(input_values, nr_factors, base, return_design=True, **kwargs):
     else:
         return DOE_design, DOE_design2
 
-def sobol(data_package,return_design=True, **kwargs):
+
+def sobol(data_package, return_design=True, **kwargs):
     """
     :param *args: [min_values,max_values,runs,nr_factors]
     :param kwargs:
@@ -195,6 +198,7 @@ def sobol(data_package,return_design=True, **kwargs):
         return DOE_design
     else:
         return DOE_design, DOE_design2
+
 
 def update_DOEmatrix_datatypes_int64(DOE_matrix, **kwargs):
     """
@@ -212,6 +216,7 @@ def update_DOEmatrix_datatypes_int64(DOE_matrix, **kwargs):
         for rows in DOE_matrix[:, kwargs[keys]]:
             DOE_matrix[int(rows), kwargs[keys]].astype(np.int64)
     return DOE_matrix
+
 
 def show_plots_outputs(data):
     fg, axs = plt.subplots(nrows=2, ncols=2, figsize=(5.5, 3.5), layout="constrained")
@@ -261,7 +266,8 @@ class DataBall:
         self.HTMLfile = open("C:/Users/gonca/Desktop/Python/PcrOptimiser/VirtualPCRSimulator.html")
         self.continuousFactors, self.categoricalFactors = BSParse(self.HTMLfile)
 
-        self.factor_names = HTMLDataExtractor(self.continuousFactors, "name")  # extracts names from the website but these are different from the source documentation
+        self.factor_names = HTMLDataExtractor(self.continuousFactors,
+                                              "name")  # extracts names from the website but these are different from the source documentation
         self.factor_attributes = ["min", "max", "value", "type"]
         self.factor_min = HTMLDataExtractor(self.continuousFactors, "min")
         self.factor_max = HTMLDataExtractor(self.continuousFactors, "max")
@@ -272,51 +278,131 @@ class DataBall:
         self.datapackage = [self.factor_min, self.factor_max, self.factor_setvalues, self.factor_datatype]
 
         self.factor_DF = dataframe_generate(self.datapackage, self.factor_attributes, self.factor_names)
-        self.factor_names = [factors for factors in self.factor_DF.columns] # updates factor names with the true ones.
+        self.factor_names = [factors for factors in self.factor_DF.columns]  # updates factor names with the true ones.
         self.factor_count = len(self.factor_names)
 
         self.DOE_cache = []  # Structure: [ [index:int,"DOE_<version> - <DOE_design>", NxM matrix:list of lists] ]
         self.DOE_version = 0
         self.DOE_active_pointer = 0
+        self.output_labels = ["DNA yield (ng/uL)", "DNA Purity (%)", "x amplification", "duration (s)"]
 
-    def data(self): # returns what the active pointer is looking at
+        self._LOCAL_STORAGE = {} # cache for names and versions of imported DOEs / Structure {"name":str : version:int}
+
+# Saving and Importing functions -------------------------------------------------------------------
+    def _folder(self):
+        year, month, day, *_ = time.localtime()
+        foldername = f"{year}_{month}_{day} - Results Folder"
+        try:
+            os.makedirs(foldername)
+            return foldername
+        except FileExistsError:
+            return foldername
+
+    def _filename(self):
+        return self.DOE_cache[self.DOE_active_pointer - 1 ][1]+"_data.csv"
+
+    def saveToDirectory(self):
+        old_dir = os.getcwd()
+        os.chdir(self._folder())
+
+        FILENAME = self._filename()
+        dataframe = self.data()
+
+        try:
+            pd.read_csv(FILENAME)
+        except FileNotFoundError:
+            dataframe.to_csv(FILENAME, index=False)
+
+
+        with open(FILENAME, "a", newline="") as file:
+            writer = csv.writer(file)
+
+            for key, value in enumerate(dataframe.values):
+                writer.writerow(value)
+
+        os.chdir(old_dir)
+
+    def importFromDirectory(self):
+        """
+        Grabs the FILE.csv in the local directory and creates a new instance in DataBall.
+        the new instance will be labelled self.FILE_import<version>
+        <version> is pulled from self._version, where the program checks for duplicate imports and updates the version.
+
+        :return: [.csv file name, .csv data]
+        """
+
+        while True:
+            for keys, files in enumerate(os.listdir()):
+                print(f"keys: {keys}, files: {files}")
+
+            selection = input("select the index of a folder or .csv file to open. (type .. to go back in folders)")
+
+            try: # goal here is to generate the filename and csv objects.
+                filename = os.listdir()[int(selection)]
+                CSV = pd.read_csv(filename)
+                print("{} opened successfully".format(filename))
+                break
+            except:
+                pass
+
+            try:
+                os.chdir(os.listdir()[int(selection)])
+            except:
+                pass
+
+            if selection == "..":
+                os.chdir(selection)
+
+        name = os.path.splitext(filename)[0]
+        suffix = "_import"
+        newname = name+suffix
+        version = str(next(self._version(newname)))
+
+        setattr(self, newname + version, CSV)
+        print(f"{newname} was imported as self.{newname}{version}")
+
+
+
+# Pointer-guided information retrieval functions -------------------------------------------------------------------
+    def data(self):  # returns what the active pointer is looking at
         return getattr(self, self.DOE_cache[self.DOE_active_pointer - 1][1] + "_data")
 
     def design(self):
-        return getattr(self, self.DOE_cache[self.DOE_active_pointer -1][1])
-    def saveToDirectory(self):
-            filename = "run_results.csv"
-            csvheader = self.factor_names + list(self.data().columns)
-            csvbody = np.concatenate([self.design(), self.data()], axis=1)
+        return getattr(self, self.DOE_cache[self.DOE_active_pointer - 1][1])
 
-            out_file = open(filename, "w", newline="")
-            writer = csv.writer(out_file)
+# generators for version control -----------------------------------------------------------------------------------
 
-            in_file = open(filename, "r", newline="")
-            reader = csv.reader(in_file)
-            old_data = list(reader)
-            in_file.close()
-
-            for row in old_data:
-                writer.writerow(row)
-            writer.writerows(csvheader)
-            writer.writerows(csvbody)
-            out_file.close()
-    def importFromDirectory(self):
+    def _version(self, filename:str):
         """
-        Grabs the .csv in the local directory, finds the most recent data, re-assigns self.<design> and self.<design>_data
-        :return:
+        Returns the next version number for an imported DOE design.
+
+        filename will be in the format of <DOE_design><version>_import (e.g. sobol1_data_import)
+
+        :param filename:
+        :return: sobol1_data_import1 if unique, or import2,3,4,5... if duplicate
         """
 
+        VERSION = 1
 
-    def function_mapping(self, function):
+        while True:
+            if filename not in self._LOCAL_STORAGE.keys():
+                self._LOCAL_STORAGE[filename] = VERSION
+            elif filename in self._LOCAL_STORAGE.keys():
+                self._LOCAL_STORAGE[filename] += 1
+            yield self._LOCAL_STORAGE[filename]
+
+
+
+# Input mapping function (Maps variables to pyDOE's DoE function format) -----------------------------------
+    def _function_mapping(self, function):
         function_map = \
             {sobol: [self.factor_min, self.factor_max, int(input("How many runs for the sobol?")), self.factor_count],
              sukharev: [],
-
              }
+
         return function_map[function]
 
+# DOE design generation, caching, updating & retrieval and simulation running functions ------------------------
     def DOE_import(self, design, self_data=True, **kwargs):
         """
         Takes in a function via the design variable.
@@ -324,56 +410,45 @@ class DataBall:
         Creates self."design<version>" variable to hold the updated DoE matrix, in int64 format.
         Creates self."design<version>.1" variable to hold the boilerplate DoE matrix.
         Caches the design and primes the DoE into the system (via pointer)
+
+        if self_data=False: (When you're importing data)
+
+
         """
 
         self.DOE_version += 1
         self.DOE_active_pointer = self.DOE_version
 
         if self_data:
-            data_package = self.function_mapping(design)
-            setattr(self, design.__name__ + str(self.DOE_version),  update_DOEmatrix_datatypes_int64(design(data_package)[0], **self.factor_class_integers))
+            data_package = self._function_mapping(design)
+            setattr(self, design.__name__ + str(self.DOE_version),
+                    update_DOEmatrix_datatypes_int64(design(data_package)[0], **self.factor_class_integers))
             setattr(self, design.__name__ + str(self.DOE_version) + "a", design(data_package)[1])
 
-        print(self.__class__.__name__,":",design.__name__ + str(self.DOE_version), "generated")
-        print(self.__class__.__name__,":",design.__name__ + str(self.DOE_version) + "a","generated ---> blank matrix")
+        print(self.__class__.__name__, ":", design.__name__ + str(self.DOE_version), "generated")
+        print(self.__class__.__name__, ":", design.__name__ + str(self.DOE_version) + "a",
+              "generated ---> blank matrix")
 
-        self.DOE_cache.append([self.DOE_version,design.__name__+str(self.DOE_version), getattr(self, design.__name__ + str(self.DOE_version))])
-        self.DOE_active = pd.DataFrame(getattr(self, design.__name__ + str(self.DOE_version)),columns=self.factor_names)
+        self.DOE_cache.append([self.DOE_version, design.__name__ + str(self.DOE_version),
+                               getattr(self, design.__name__ + str(self.DOE_version))])
+        self.DOE_active = pd.DataFrame(getattr(self, design.__name__ + str(self.DOE_version)),
+                                       columns=self.factor_names)
 
         self.DOE_active = self.DOE_active.astype({"cycles": int})
         self.DOE_active = self.DOE_active.astype({"cycles": "Int64"})
 
-
         if not self_data:
             pass
 
-    def DOE_extract_data(self,data):
-
-        output_labels = ["DNA yield (ng/uL)", "DNA Purity (%)", "x amplification", "duration (s)"]
-
-        result_yield = []
-        result_purity = []
-        result_amplificationpct = []
-        result_duration = []
-
-        for run in data: #DATA is a list of dictionaries.
-            result_yield.append(run["yield"])
-            result_purity.append(run["purity"])
-            result_amplificationpct.append(run["times_amplification"])
-            result_duration.append(run["runtime_sec"])
-
-        data_in_columns = [result_yield, result_purity, result_amplificationpct, result_duration]
-        data_in_rows = list(map(list,zip(*data_in_columns)))
-
-        data_in_rows = pd.DataFrame(data_in_rows,columns=output_labels)
-
-        return data_in_rows
-
     def DOE_current_design(self, change=""):
         """
-        Returns the DOE designs in cache to the user.
-        passing an integer allows the user to choose which DoE design to prime into the system (via pointer).
-        :return:
+        Shows all  DOE designs currently stored in the cache of this DataBall class object.
+        change: int allows the user to select which DOE design and it's underlying data gets primed for the simulation.
+
+        :change: if "" > returns all DOE designs by their order of generation
+        :change: if int > moves self.DOE_active_pointer to stated DOE design, alongside all underlying data.
+
+        :return: see above comments for :change:
         """
         if change == "":
             for row_nr in range(len(self.DOE_cache)):
@@ -388,7 +463,7 @@ class DataBall:
             return
 
         try:
-            self.DOE_active = self.DOE_cache[change_int - 1][2] # DOE cache has the matrix in index 2.
+            self.DOE_active = self.DOE_cache[change_int - 1][2]  # DOE cache has the matrix in index 2.
             self.DOE_active_pointer = change_int
         except IndexError:
             print("That index is out of bounds")
@@ -411,44 +486,25 @@ class DataBall:
             pass
         for rows in DOE_matrix.values:
             test_run = dataframe_to_pcr_format(rows)
-            results.append(pcrsim.demo(test_run))
-            print("{0} out of {1}".format(len(results),len(self.DOE_active)))
+            results.append(pcrsim.demo(test_run)) # This takes forever and it needs to be sorted
 
-        table_DF = self.DOE_extract_data(results)
+            print("{0} out of {1}".format(len(results), len(self.DOE_active)))
 
-        setattr(self,self.DOE_cache[self.DOE_active_pointer-1][1]+"_data", table_DF)
+        table_DF = self._DOE_extract_data(results)
 
-    def collect(self, function, new_variable_names):
-        """
-        receives a function and labels the outputs according to pre-defined instructions.
-        :param function: any function
-        :param kwargs: dict with .values() for labelling the function outputs
-        :return: self.values()
-        """
-        if "dataframe" in function.__name__.lower():
-            function.__call__()
-            pass
+        setattr(self, self.DOE_cache[self.DOE_active_pointer - 1][1] + "_data", table_DF)
 
+# data wrangling functions -----------------------------------------------------
+    def _DOE_extract_data(self, data):
+
+        interim_df = pd.DataFrame(data)
+        final_df = pd.DataFrame(interim_df.values, columns=self.output_labels)
+
+        return final_df
 
 ## script execution ----------------------------------
 
-a = DataBall() # creates the DataBall object
+a = DataBall()  # creates the DataBall object
+a.DOE_import(sobol)  # creates an DOE design
+a.RUN(hard_limit=3)  # runs the DOE design
 
-a.DOE_import(sobol) # creates an DOE design
-a.RUN(hard_limit=5) # runs the DOE design
-
-
-
-# saves output data into 2 lists: 1 by row (i.e. run nr. in row) 1 by column (i.e. run nr. by column)
-
-# save_data_to_csv(data_by_rows,"run_results.csv",factorinfoDF,sobol_matrix)
-
-## script execution ----------------------------------
-
-# test_sobol_matrix = pyDOE.sobol_sequence(50,12)
-# test_sobol_matrix =sobol(minList,maxList,50,12)
-# test_sobol_matrix = update_DOEmatrix_datatypes_int64(test_sobol_matrix,**integer_factors)
-# RUN3 = DOE_simulation(test_sobol_matrix,factorinfoDF,hard_limit=3)
-# save_data_to_list(RUN3)
-# show_plots_byFactor(test_sobol_matrix,data=data_by_columns)
-# show_plots_outputs(data=data_by_columns)
