@@ -1,57 +1,59 @@
-Experimental designs are methods of querying the behaviour of complex in silico/in vivo systems in an extensive and data-efficient manner.
-
-They address a technical execution problem that arises when a scientist/engineer seeks to investigate and model a black box system with large sets of input parameters empirically. Generally speaking, both the inputs and output are usually continous and the resulting approximation model is usually a simple combination of multiple linear or quadratic models. 
-
-Whilst individual input parameter testing is feasible, accepteable and of straight forward analysis and experimental control, it's cumbersome nature of iterating through each individual factor is both resource ineficient and "low resolution" (i.e. doesn't explain how inputs can interact with eachother to impact the output, only how each input affects the output exclusively).   
-
-A subset of experimental designs addresses this by providing bespoke testing schematics that leverage controlled input aliasing (i.e. having two factors changing simultaneously in a test run) to 1) to test more inputs per test run and 2) investigate for input interactions (n-factor interactions), thus allowing for a more complete description of black box behaviour compared straightforward indididual factor testing. 
-
-Another subset of experimental designs use quasirandom sequences of numbers (low-discrepancy sequences) to generate a testing schematic that covers the experimental ranges of the input factors of a black box evenly. These are technically superior to the latter subset if not constrained by resources or time.
-
-Ben Shirt-Ediss made https://virtual-pcr.ico2s.org/pcr/, an in silico model of a PCR reaction aimed at amplifying a 1kb DNA sequence by changing the parameterization of 12 different inputs. The source code can be found at https://bitbucket.org/ben_s_e/virtual-pcr-notebook/src/main/ .Understandeably, the fact that he coded a model means that one could derive the maximum output metrics (yield, product purity) numerically. However, he and I (as found in this repo), intended that the solution be found via experimental designs, for the sakes of learning about them.
-
-This repo seeks to interface his model with pyDOE, a python module for experimental designs, to provide an interactive approach to experimental design testing without going through the web server. 
-
-------------------------------------------------------------------------------------------
-
-## Current highscore: 1.066 mg/mL, 99.6% pure, 330 minute run - 1024 run SOBOL sequence
-
-------------------------------------------------------------------------------------------
-
 **How to use:**
 
-- Create a DataBall instance.
+From no prior data:
+```python
+instance = DataBall() # creates DataBall class object
 
-- Call DataBall.DOE_import(sobol) -> imports a sobol design
+instance.DOE_import(sobol) # imports a DOE design, in this case a sobol.
 
-- input: number of runs for sobol design
+~~~ input request: # requests user input for design-specific variables. for sobol, it will ask for total nr. of runs.
 
-- Call DataBall.RUN()
+instance.RUN() # runs the sobol design through the PCR simulator
+
+instance.savetoDirectory() # generates a "year_month_date - Results Folder" in curdir and saves results as sobol1_data.csv
+```
+
+From saved data:
+```python
+instance = DataBall()
+
+instance.importFromDirectory()
+
+~~~ input request: # select folder and FILE.csv through interactive menu.
+
+_creates a DataBall variable named: self.FILE_import<version>_
+
+```
+
+**Planned tasks:**
+- append the DOE matrix to the output data for future ease of use when plotting data.
+- Update and upgrade functions for DOE data visualisation to accept DataBall compatibility
+
+
 
 
 **userguide:**
 
-instantiating DataBall collects all factors and their data from the PCR simulator, whilst also generating a DataBall.factor_DF DataFrame for organisation purposes.
+```python
+DataBall()
+# instantiating DataBall collects all factors and their data from the PCR simulator
+# generates a DataBall.factor_DF DataFrame with the data.
 
-DataBall.DOE_import(sobol) runs the sobol design function with the required parameters within DataBall. DataBall.Function_Mapping is called to map the function to it's function call parameters.
-
-DataBall.DOE_import(sobol) creates a DataBall.sobol1 (test levels updated) and a DataBall.sobol1a variable (boilerplate matrix)
-
-DataBall.DOE_import(sobol) also caches DataBall.sobol1.
-
-Recursively calling the prior function creates and caches DataBall.sobol2, sobol3, sobol4 etc... You can customise the sobol design with each call (currently it's just run nr.)
-
-DataBall.DOE_current_design() shows you what's in the DOE cache and what DOE you have selected for testing. 
-
-DataBall.DOE_current_design(change=int) changes the active DOE design to one from the cache.
-
-DataBall.RUN() Takes each row of the selected DOE, passes it into DataBall.factor_DF, formats it for the PCR simulation, runs the PCR simulation for all the rows in the selected DOE. **kwargs accepts {"hard_limit" = integer} to truncate the DOE design, for development reasons. 
+DataBall.DOE_import(sobol)
+ # calling .DOE_import(sobol) will call pyDOE.sobol_sequence(), passign as arguments those specified via of DataBall.function_mapping(sobol)
+ # creates a DataBall.sobol<version> (working test ranges given Min Max values) and a DataBall.sobol<version>**a** variable (boilerplate matrix. factors are between 0 and 1)
+ # caches DataBall1.sobol<version> and sobol<version>**a** into DataBall.DOE_cache, and moves DataBall.DOE_active_pointer to it.
 
 
-**Planned tasks:**
-- Migrate functions for DOE run data collection into DataBall
-- Update and upgrade functions for DOE data visualisation to accept DataBall compatibility
-- Update and upgrade functions for locally saving data to accept DataBall compatibility
+DataBall.DOE_current_design(change="")
+# shows you what's in the DOE cache and what DOE you have selected for testing.
+# change = int changes which DOE is meant to be used for testing.
+
+DataBall.RUN()
+# Takes each row of the selected DOE, passes it into DataBall.factor_DF, formats it for the PCR simulation, runs the PCR simulation for all the rows in the selected DOE.
+# **kwargs accepts {"hard_limit" = integer} to truncate the DOE design, for development reasons. 
+
+
 
 
 
