@@ -41,7 +41,7 @@ Data calling:
 instance.dataset() #returns imported DOE design or the full dataset (DOE_design + appended data) if RUN() has been executed.
 instance.dataset_DOEmatrix() # returns just the DOE design.
 isntance.dataset_results() # returns just the simulation data.
-instance.dataset_reset() # resets heightened states and work done unter them. resets to the DOE design selected with the Data Selection functions.  
+instance.dataset_reset() # resets heightened states and work done under them. Brings back the original DOE dataset.  
 ```
 
 Data visualisation:
