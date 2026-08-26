@@ -6,6 +6,7 @@ import numpy as np
 import csv
 import time
 import os
+import itertools
 
 from pcrmachine import pcrparam
 from pcrmachine import pcrsim
@@ -199,6 +200,17 @@ def sobol(data_package, return_design=True, **kwargs):
     else:
         return DOE_design, DOE_design2
 
+def ff2n(data_package,return_design=True, **kwargs):
+    DOE_design = pyDOE.ff2n(data_package[0])
+    DOE_design2 = pyDOE.ff2n(data_package[0])
+
+    for i in range(data_package[0]):
+        DOE_design[:, i] = DOE_design[:, i] * np.std([data_package[1][i],data_package[2][i]]) + np.average([data_package[1][i],data_package[2][i]])
+
+    if not return_design:
+        return DOE_design
+    else:
+        return DOE_design, DOE_design2
 
 def update_DOEmatrix_datatypes_int64(DOE_matrix, **kwargs):
     """
@@ -216,38 +228,6 @@ def update_DOEmatrix_datatypes_int64(DOE_matrix, **kwargs):
         for rows in DOE_matrix[:, kwargs[keys]]:
             DOE_matrix[int(rows), kwargs[keys]].astype(np.int64)
     return DOE_matrix
-
-
-def show_plots_outputs(data):
-    fg, axs = plt.subplots(nrows=2, ncols=2, figsize=(5.5, 3.5), layout="constrained")
-    x_axis = [str(i) for i in range(len(data[0]))]  ## any result out_file goes really
-
-    axs[0, 0].scatter(x_axis, data[0], marker=".")
-    axs[0, 1].scatter(x_axis, data[1])
-    axs[1, 0].scatter(x_axis, data[2])
-    axs[1, 1].scatter(x_axis, data[3])
-
-    plt.show()
-
-
-def show_plots_byFactor(DOE_matrix, data, column=1):
-    counter = 0
-
-    fg, axs = plt.subplots(nrows=4, ncols=3, figsize=(5.5, 3.5), layout="constrained")
-
-    y_axis = data[column]
-
-    for row in range(len(axs)):
-        for column in range(len(axs[row])):
-            x_axis = DOE_matrix[:, counter]
-            axs[row, column].scatter(x_axis, y_axis)
-            axs[row, column].set_title(factorList[counter])
-            counter += 1
-
-    plt.show()
-
-
-# show_plots_outputs()
 
 class DataBall:
     """
@@ -282,9 +262,11 @@ class DataBall:
         self.factor_count = len(self.factor_names)
 
         self.DOE_cache = []  # Structure: [ [index:int,"DOE_<version> - <DOE_design>", NxM matrix:list of lists] ]
+        self.output_labels = ["DNA yield (ng/uL)", "DNA Purity (%)", "x amplification", "duration (s)"]
         self.DOE_version = 0
         self.DOE_active_pointer = 0
-        self.output_labels = ["DNA yield (ng/uL)", "DNA Purity (%)", "x amplification", "duration (s)"]
+        self._TEMP_DATA = False  # gets set to true when modifying data. Makes the self.plot_...() functions use self.DOE_active, instead of cached DOE data.
+        self._LAZY_OUTPUT_SELECTION = False # gets set to true when modifying data. remembers the last output column
 
         self._LOCAL_STORAGE = {} # cache for names and versions of imported DOEs / Structure {"name":str : version:int}
 
@@ -299,26 +281,25 @@ class DataBall:
             return foldername
 
     def _filename(self):
-        return self.DOE_cache[self.DOE_active_pointer - 1 ][1]+"_data.csv"
+        return self.DOE_cache[self.DOE_active_pointer - 1 ][1]+".csv"
 
     def saveToDirectory(self):
         old_dir = os.getcwd()
         os.chdir(self._folder())
 
         FILENAME = self._filename()
-        dataframe = self.data()
+        dataframe = self.dataset()
 
         try:
             pd.read_csv(FILENAME)
+            with open(FILENAME, "a", newline="") as file:
+                writer = csv.writer(file)
+
+                for key, value in enumerate(dataframe.values):
+                    writer.writerow(value)
+
         except FileNotFoundError:
             dataframe.to_csv(FILENAME, index=False)
-
-
-        with open(FILENAME, "a", newline="") as file:
-            writer = csv.writer(file)
-
-            for key, value in enumerate(dataframe.values):
-                writer.writerow(value)
 
         os.chdir(old_dir)
 
@@ -357,21 +338,38 @@ class DataBall:
         suffix = "_import"
         newname = name+suffix
         version = str(next(self._version(newname)))
+        columns = self.factor_names+self.output_labels
 
-        setattr(self, newname + version, CSV)
-        print(f"{newname} was imported as self.{newname}{version}")
+        setattr(self, newname + version, pd.DataFrame(update_DOEmatrix_datatypes_int64(
+            CSV.values,**self.factor_class_integers), columns=columns))
 
+        print(f"{name} was imported as self.{newname}{version}")
 
+        self.DOE_active_pointer = len(self.DOE_cache) # sends the pointer to the top of the cache.
+        self.DOE_cache.append([version, newname+version, getattr(self,newname+version)]) # adds the import
+        self.DOE_active_pointer += 1 # updates the pointer
+
+        self.DOE_active = getattr(self, newname+version)
+        self.DOE_active = self.DOE_active.astype({"cycles": int})
+        self.DOE_active = self.DOE_active.astype({"cycles": "Int64"})
 
 # Pointer-guided information retrieval functions -------------------------------------------------------------------
-    def data(self):  # returns what the active pointer is looking at
-        return getattr(self, self.DOE_cache[self.DOE_active_pointer - 1][1] + "_data")
+    def dataset(self):  # returns what the active pointer is looking at
+        if self._TEMP_DATA: return self.DOE_active
+        if not self._TEMP_DATA: return getattr(self, self.DOE_cache[self.DOE_active_pointer - 1][1])
 
-    def design(self):
-        return getattr(self, self.DOE_cache[self.DOE_active_pointer - 1][1])
+    def dataset_DOEmatrix(self):
+        if self._TEMP_DATA: return self.DOE_active.iloc[:,:self.factor_count]
+        if not self._TEMP_DATA: return getattr(self, self.DOE_cache[self.DOE_active_pointer - 1][1]).iloc[:,:self.factor_count]
 
-# generators for version control -----------------------------------------------------------------------------------
+    def dataset_results(self):
+        if self._TEMP_DATA: return self.DOE_active.iloc[:, self.factor_count:]
+        if not self._TEMP_DATA: return getattr(self, self.DOE_cache[self.DOE_active_pointer - 1][1]).iloc[:, self.factor_count:]
+    def dataset_reset(self):
+        self._TEMP_DATA = False
+        self.DOE_active = self.dataset()
 
+#  Generators for state changes --------------------------------------------------------------------------------
     def _version(self, filename:str):
         """
         Returns the next version number for an imported DOE design.
@@ -391,15 +389,46 @@ class DataBall:
                 self._LOCAL_STORAGE[filename] += 1
             yield self._LOCAL_STORAGE[filename]
 
+    def _objectStates(self, name, states, return_cache=0):
+        GENERATOR_CACHE= "_GENERATOR_CACHE"
+        if return_cache == 1:
+            return getattr(self,GENERATOR_CACHE)
+
+        try:
+            getattr(self,GENERATOR_CACHE)
+        except AttributeError:
+            setattr(self,GENERATOR_CACHE,{})
+
+        try:
+            getattr(self, GENERATOR_CACHE)[name]
+        except KeyError:
+            getattr(self, GENERATOR_CACHE)[name] = itertools.cycle(states)
+
+# DataBall mode switches -------------------------------------------------------------------------------
+    def ANALYTICS_mode(self):
+        name = "ANALYTICS"
+        states = ["ON","OFF"]
+        GENERATOR_CACHE = "_GENERATOR_CACHE"
+
+        self._objectStates(name, states)
+        state = next(getattr(self,GENERATOR_CACHE)[name])
+
+        if state == states[0]: # i.e. "ON"
+            self._TEMP_DATA = True
+            self._LAZY_OUTPUT_SELECTION = True
+            print(f"analytics mode:{state}")
+        elif state == states[1]: # i.e. "OFF"
+            self._TEMP_DATA = False
+            self._LAZY_OUTPUT_SELECTION = False
+            print(f"analytics mode:{state}")
 
 
 # Input mapping function (Maps variables to pyDOE's DoE function format) -----------------------------------
     def _function_mapping(self, function):
         function_map = \
             {sobol: [self.factor_min, self.factor_max, int(input("How many runs for the sobol?")), self.factor_count],
-             sukharev: [],
+             ff2n: [self.factor_count,self.factor_min,self.factor_max]
              }
-
         return function_map[function]
 
 # DOE design generation, caching, updating & retrieval and simulation running functions ------------------------
@@ -416,23 +445,23 @@ class DataBall:
 
         """
 
-        self.DOE_version += 1
-        self.DOE_active_pointer = self.DOE_version
+
+        DOE_version = str(next(self._version(design.__name__)))
 
         if self_data:
             data_package = self._function_mapping(design)
-            setattr(self, design.__name__ + str(self.DOE_version),
+            setattr(self, design.__name__ + DOE_version,
                     update_DOEmatrix_datatypes_int64(design(data_package)[0], **self.factor_class_integers))
-            setattr(self, design.__name__ + str(self.DOE_version) + "a", design(data_package)[1])
+            setattr(self, design.__name__ + DOE_version + "a", design(data_package)[1])
 
-        print(self.__class__.__name__, ":", design.__name__ + str(self.DOE_version), "generated")
-        print(self.__class__.__name__, ":", design.__name__ + str(self.DOE_version) + "a",
+        print(self.__class__.__name__, ":", design.__name__ + DOE_version, "generated")
+        print(self.__class__.__name__, ":", design.__name__ + DOE_version + "a",
               "generated ---> blank matrix")
 
-        self.DOE_cache.append([self.DOE_version, design.__name__ + str(self.DOE_version),
-                               getattr(self, design.__name__ + str(self.DOE_version))])
-        self.DOE_active = pd.DataFrame(getattr(self, design.__name__ + str(self.DOE_version)),
-                                       columns=self.factor_names)
+        self.DOE_active_pointer = len(self.DOE_cache) # sends the pointer to the top of the cache.
+        self.DOE_active_pointer += 1 # adds 1 to mark the entry of a new DOE design.
+        self.DOE_cache.append([DOE_version, design.__name__ + DOE_version, getattr(self, design.__name__ + DOE_version)])
+        self.DOE_active = pd.DataFrame(getattr(self, design.__name__ + DOE_version), columns=self.factor_names)
 
         self.DOE_active = self.DOE_active.astype({"cycles": int})
         self.DOE_active = self.DOE_active.astype({"cycles": "Int64"})
@@ -452,7 +481,7 @@ class DataBall:
         """
         if change == "":
             for row_nr in range(len(self.DOE_cache)):
-                print("DOE nr.: {0} // name: {1}".format(self.DOE_cache[row_nr][0], self.DOE_cache[row_nr][1]))
+                print("DOE nr.: {0} // name: {1}".format(row_nr + 1, self.DOE_cache[row_nr][1]))
             print("Active DOE: >>{}<<".format(self.DOE_active_pointer))
             return
 
@@ -492,19 +521,103 @@ class DataBall:
 
         table_DF = self._DOE_extract_data(results)
 
-        setattr(self, self.DOE_cache[self.DOE_active_pointer - 1][1] + "_data", table_DF)
+        setattr(self, self.DOE_cache[self.DOE_active_pointer - 1][1], table_DF)
 
 # data wrangling functions -----------------------------------------------------
     def _DOE_extract_data(self, data):
 
-        interim_df = pd.DataFrame(data)
-        final_df = pd.DataFrame(interim_df.values, columns=self.output_labels)
+        interim_df1 = pd.DataFrame(data)
+        interim_df2 = pd.DataFrame(interim_df1.values, columns=self.output_labels)
+        final_df = self.DOE_active.join(interim_df2)
 
         return final_df
+
+
+    def data_topvalues(self,n,object=False):
+
+        data = self.data_sort(sort_ascending=False)
+
+        if self._TEMP_DATA == True:
+            self.DOE_active = self.DOE_active.iloc[:n,:]
+
+            if object == True:
+                return self.DOE_active
+
+        elif self._TEMP_DATA == False or object == True:
+            return data.iloc[:n,:]
+
+    def data_average_ranking(self):
+        pass
+    def data_sort(self,sort_ascending=True,object=False):
+
+        for i in range(len(self.output_labels)):
+            print("{}. - {}".format(i,self.output_labels[i]))
+
+        selection = input("Select index of output")
+
+        if self._TEMP_DATA == True:
+            self.DOE_active.sort_values(self.output_labels[int(selection)],axis=0,inplace=True,ascending=sort_ascending)
+            if object == True:
+                return self.DOE_active
+
+        elif self._TEMP_DATA == False or object == True:
+            return self.DOE_active.sort_values(self.output_labels[int(selection)],axis=0,ascending=sort_ascending)
+
+
+
+
+
+
+# data plotting functions -----------------------------------------------------
+    def plot(self):
+
+        data = self.dataset_results()
+        fg, axs = plt.subplots(nrows=2, ncols=2, figsize=(5.5, 3.5), layout="constrained")
+        x_axis = [str(i) for i in range(data.count()[self.output_labels[0]])]
+
+        # self.data() returns the most recent a.RUN() results (DataFrame object)
+        # self.data().count() returns a list with the count of non-NaN values in each column
+        # self.data().count()[self.output_labels[0]] returns the count of non-NaN values for column = "DNA yield (ng/uL)"
+        # x_axis = a list with the rows which got populated in RUN()
+
+        grid = [position for position in itertools.product([0,1],repeat=2)]
+        label = self.output_labels
+
+        plot_layout = zip(grid,label)
+
+        for plot in plot_layout:
+            print(x_axis, data[plot[1]])
+            axs[plot[0]].scatter(x_axis, data[plot[1]], marker=".")
+            axs[plot[0]].set_title(plot[1])
+
+        plt.show()
+
+    def plot_byfactor(self):
+        data = self.dataset()
+
+        counter = 0
+
+        fg, axs = plt.subplots(nrows=4, ncols=3, figsize=(10, 10), layout="constrained")
+
+        DOE_matrix, results = data.iloc[:,:self.factor_count], data.iloc[:,self.factor_count:]
+        # 0 - self.factor_count = DOE_matrix
+        # self.factor_count - 16 = results
+
+        y_axis = results.iloc[:,0].values # yield column
+        
+        for row in range(len(axs)):
+            for column in range(len(axs[row])):
+                x_axis = DOE_matrix.iloc[:, counter].values
+                axs[row, column].scatter(x_axis, y_axis)
+                axs[row, column].set_title(self.factor_names[counter])
+                counter += 1
+
+        plt.show()
+
 
 ## script execution ----------------------------------
 
 a = DataBall()  # creates the DataBall object
-a.DOE_import(sobol)  # creates an DOE design
-a.RUN(hard_limit=3)  # runs the DOE design
+#a.DOE_import(sobol)  # creates an DOE design
+#a.RUN(hard_limit=3)  # runs the DOE design
 
