@@ -60,14 +60,14 @@ State priming:
 ```python
 instance.ANALYTICS_mode()
 # heightened state for working and visualising data. calling it will turn it ON or OFF. default = "OFF" 
-# if OFF (default), ALL Data Handling functions WILL RETURN AN OBJECT BY DEFAULT, overriding object=True assignments. 
-# if ON, ALL Data Calling, Data Handling, Data visualisation and Data Saving functions will now be applicable to an inplace copy of active DOE file. This means that all Data Handling functions now behave as object=False by default (don't allow for variable assignment).
-# However, you can still pass object=True when ANALYTICS_mode = ON to assign a variable to the result of a Data Handling functio.
+# if OFF (default), ALL Data Handling functions WILL RETURN AN OBJECT BY DEFAULT. the underlying dataset will not be modified.
+# if ON, ALL Data Calling, Data Handling, Data visualisation and Data Saving functions will now be applicable to an inplace copy of the underlying dataset. This means that all Data Handling functions now behave as object=False.
+# However, you can still pass object=True when ANALYTICS_mode = ON to assign a variable to any modification done to the working copy of the dataset.
 ```
 
 **Planned tasks:**
 - Add functionality to the functions in Data Visualisation to accept an external variable instead of built-in data calling methods.
-- ANALYTICS_mode() clashes with Data Importing and Data Selection because of forced self.DOE_active reassignment, thus deleting the inplace copy of the active DOE file.
+- ANALYTICS_mode() clashes with Data Importing and Data Selection because of forced self.DOE_active reassignment, thus deleting the inplace copy of the active DOE file when either is called.
 
 
 
