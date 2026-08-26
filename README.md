@@ -57,7 +57,7 @@ instance.data_sort(sort_ascending=True,object=False) # sorts data on the selecte
 ```
 
 State priming:
-```python:
+```python
 instance.ANALYTICS_mode()
 # heightened state for working and visualising data. calling it will turn it ON or OFF. default = "OFF" 
 # if OFF (default), ALL Data Handling functions WILL RETURN AN OBJECT BY DEFAULT, overriding object=True assignments. 
