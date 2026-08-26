@@ -32,7 +32,7 @@ instance.DOE_current_design() # shows what designs are currently available and a
 instance.DOE_current_design(change=int) # activates a different design to RUN()
 
 # the program moves a pointer (self.DOE_active_pointer) to a local cache of all DOE designs, including the recently imported.
-# the pointer will dictate what the Data calling, Data visualisation and Data Handling funcitons will pull data from.
+# the pointer will dictate what the Data calling, Data visualisation, Data Handling and Data Exporting functions will pull data from.
 # the pointer will influence Temporary State Priming functions: it will dictate what dataset will be offered for temporary modifications. 
 ```
 
