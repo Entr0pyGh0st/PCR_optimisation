@@ -14,6 +14,7 @@ Data Exporting - Saving a dataset:
 instance.savetoDirectory() # generates a "year_month_date - Results Folder" in curdir and saves results as sobol1.csv
 
 # sobol1.csv is a 16 column file, 12 for the DOE factors, 4 for the PCR result types. Rows are the DOE test conditions followed by the respective 4 PCR results.
+# sobol1.csv can also be a 12 column file with just the DOE factors if you dont instance.RUN()
 ```
 
 Data Importing - Using a saved dataset:
