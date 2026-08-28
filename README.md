@@ -1,9 +1,4 @@
 
-**Planned tasks:**
-- Add functionality to the functions in Data Visualisation to accept an external variable instead of built-in data calling methods.
-- ANALYTICS_mode() clashes with Data Importing and Data Selection because of forced self.DOE_active reassignment, thus deleting the inplace copy of the active DOE file when either is called.
-
-
 
 Experimental designs are methods of querying the behaviour of complex in silico/in vivo systems in an extensive and data-efficient manner.
 
@@ -21,9 +16,22 @@ This repo seeks to interface his model with pyDOE, a python module for experimen
 
 ------------------------------------------------------------------------------------------
 
-## Current highscore: 1.066 mg/mL, 99.6% pure, 330 second run - 1024 run SOBOL sequence
+## Current highscore: 1.483 mg/mL, 97.6% pure, 8801-fold amplification, 22060 second run
 
 ------------------------------------------------------------------------------------------
+
+Bugs:
+# instance.importFromDirectory() doesn't revert back to original directory, thus recursively saving files.
+# instance.importFromDirectory() forces deletion of temp data generated under ANALYTICS_mode()
+# instance.importFromDirectory() breaks when importing data with Average Rankings column appended. 
+# instance.DOE_current_design() will override temp file work enabled by instance.ANALYTICS_mode()
+
+future features
+# let Data Visualisation functions use external data.
+# statistical testing for interactions
+# stepwise minimisation of BIC and AIC(c) of models.
+# more designs: Fractional, PB, BB
+# more plots: DOE mean, stdev, scatter and interaction plots ,residual by row, residual by predicted, Q-Q,
 
 **How to use:**
 
@@ -34,11 +42,13 @@ instance.DOE_import(sobol) # imports a DOE design, in this case from the functio
 ~~~ input request: # requests user input for design-specific variables. for sobol, it will ask for total nr. of runs.
 instance.RUN() # runs the newly created attribute ,e.g. self.sobol1,  through the PCR simulator
 
+DOE_update(True) followed by DOE_import(sobol) # 1st function call updates the min,max values. 2nd function call generates an updated sobol design.
+
 ```
 
 Data Exporting - Saving a dataset:
 ```python
-instance.savetoDirectory() # generates a "year_month_date - Results Folder" in curdir and saves results as sobol1.csv
+instance.exportToDirectory() # generates a "year_month_date - Results Folder" in curdir and saves results as sobol1.csv
 
 # sobol1.csv is a 16 column file, 12 for the DOE factors, 4 for the PCR result types. Rows are the DOE test conditions followed by the respective 4 PCR results.
 # sobol1.csv can also be a 12 column file with just the DOE factors if you dont instance.RUN()
@@ -57,6 +67,7 @@ Data selection (IMPORTANT)
 ```python
 instance.DOE_current_design() # shows what designs are currently available and activated to RUN()
 instance.DOE_current_design(change=int) # activates a different design to RUN()
+instance.DOE_update(change=False) # returns min,max, current value for DOE factors. if change=True allows individual update of each. Empty string skips entry. 
 
 # the program moves a pointer (self.DOE_active_pointer) to a local cache of all DOE designs, including the recently imported.
 # the pointer will dictate what the Data calling, Data visualisation, Data Handling and Data Exporting functions will pull data from.
