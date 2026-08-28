@@ -21,17 +21,17 @@ This repo seeks to interface his model with pyDOE, a python module for experimen
 ------------------------------------------------------------------------------------------
 
 Bugs:
-# instance.importFromDirectory() doesn't revert back to original directory, thus recursively saving files.
-# instance.importFromDirectory() forces deletion of temp data generated under ANALYTICS_mode()
-# instance.importFromDirectory() breaks when importing data with Average Rankings column appended. 
-# instance.DOE_current_design() will override temp file work enabled by instance.ANALYTICS_mode()
+-instance.importFromDirectory() doesn't revert back to original directory, thus recursively saving files.
+-instance.importFromDirectory() forces deletion of temp data generated under ANALYTICS_mode()
+-instance.importFromDirectory() breaks when importing data with Average Rankings column appended. 
+-instance.DOE_current_design() will override temp file work enabled by instance.ANALYTICS_mode()
 
-future features
-# let Data Visualisation functions use external data.
-# statistical testing for interactions
-# stepwise minimisation of BIC and AIC(c) of models.
-# more designs: Fractional, PB, BB
-# more plots: DOE mean, stdev, scatter and interaction plots ,residual by row, residual by predicted, Q-Q,
+future features:
+-let Data Visualisation functions use external data.
+-statistical testing for interactions
+-stepwise minimisation of BIC and AIC(c) of models.
+-more designs: Fractional, PB, BB
+-more plots: DOE mean, stdev, scatter and interaction plots ,residual by row, residual by predicted, Q-Q,
 
 **How to use:**
 
