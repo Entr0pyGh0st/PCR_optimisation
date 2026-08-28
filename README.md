@@ -69,8 +69,8 @@ instance.importFromDirectory()
 
 Data selection (IMPORTANT)
 ```python
-instance.DOE_current_design() # shows what designs are currently available and activated to RUN()
-instance.DOE_current_design(change=int) # activates a different design to RUN()
+instance.DOE_current_design() # shows what designs are currently available and activated to RUN(). CREATES self.DOE_active_pointer.
+instance.DOE_current_design(change=int) # activates a different design to RUN(). UPDATES self.DOE_active_pointer FOR REST OF THE PROGRAM. 
 instance.DOE_update(change=False) # returns min,max, current value for DOE factors. if change=True allows individual update of each. Empty string skips entry. 
 
 # the program moves a pointer (self.DOE_active_pointer) to a local cache of all DOE designs, including the recently imported.
@@ -95,7 +95,8 @@ instance.plot_byfactor() # 12 scatterplots, 1 per factor. (y = PCR result // x =
 Data Handling:
 ```python
 instance.data_topvalues(n=int,object=False) # Shows the top N values of the selected DOE matrix after RUN(). object=True allows assignment to a variable.
-instance.data_sort(sort_ascending=True,object=False) # sorts data on the selected DOE matrix after RUN(). sort_ascending=False changes the sort, object=True allows assignment to a variable. 
+instance.data_sort(sort_ascending=True,object=False) # sorts data on the selected DOE matrix after RUN(). sort_ascending=False changes the sort, object=True allows assignment to a variable.
+instance.data_average_ranking() # returns the average rank of each run across all 4 outputs as an appended column.
 ```
 
 State priming:
