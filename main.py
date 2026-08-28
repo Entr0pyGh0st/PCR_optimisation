@@ -188,29 +188,36 @@ def sobol(data_package, return_design=True, **kwargs):
     :param *args: [min_values,max_values,runs,nr_factors]
     :param kwargs:
     :return: an updated DoE design and a boilerplate DoE design.
-    """
 
+    [self.factor_DF.loc["min"], self.factor_DF.loc["max"], int(input("How many runs for the sobol?")), self.factor_DF.shape[1]]
+    """
     DOE_design = pyDOE.sobol_sequence(data_package[2], data_package[3])
     DOE_design2 = pyDOE.sobol_sequence(data_package[2], data_package[3])
 
-    for i in range(data_package[3]):
-        DOE_design[:, i] *= data_package[1][i]
+    for factor_nr in range(data_package[3]):
+        for row_nr in range(len(DOE_design)):
+            DOE_design[row_nr, factor_nr] = data_package[0].iloc[factor_nr] + (
+                        data_package[1].iloc[factor_nr] - data_package[0].iloc[factor_nr]) * DOE_design[
+                                                row_nr, factor_nr]
     if not return_design:
         return DOE_design
     else:
         return DOE_design, DOE_design2
 
-def ff2n(data_package,return_design=True, **kwargs):
+
+def ff2n(data_package, return_design=True, **kwargs):
     DOE_design = pyDOE.ff2n(data_package[0])
     DOE_design2 = pyDOE.ff2n(data_package[0])
 
     for i in range(data_package[0]):
-        DOE_design[:, i] = DOE_design[:, i] * np.std([data_package[1][i],data_package[2][i]]) + np.average([data_package[1][i],data_package[2][i]])
+        DOE_design[:, i] = DOE_design[:, i] * np.std([data_package[1][i], data_package[2][i]]) + np.average(
+            [data_package[1][i], data_package[2][i]])
 
     if not return_design:
         return DOE_design
     else:
         return DOE_design, DOE_design2
+
 
 def update_DOEmatrix_datatypes_int64(DOE_matrix, **kwargs):
     """
@@ -228,6 +235,7 @@ def update_DOEmatrix_datatypes_int64(DOE_matrix, **kwargs):
         for rows in DOE_matrix[:, kwargs[keys]]:
             DOE_matrix[int(rows), kwargs[keys]].astype(np.int64)
     return DOE_matrix
+
 
 class DataBall:
     """
@@ -262,15 +270,18 @@ class DataBall:
         self.factor_count = len(self.factor_names)
 
         self.DOE_cache = []  # Structure: [ [index:int,"DOE_<version> - <DOE_design>", NxM matrix:list of lists] ]
-        self.output_labels = ["DNA yield (ng/uL)", "DNA Purity (%)", "x amplification", "duration (s)"]
         self.DOE_version = 0
         self.DOE_active_pointer = 0
+
+        self.output_labels = ["DNA yield (ng/uL)", "DNA Purity (%)", "x amplification", "duration (s)"]
+        self.output_active_pointer = 0
+
         self._TEMP_DATA = False  # gets set to true when modifying data. Makes the self.plot_...() functions use self.DOE_active, instead of cached DOE data.
-        self._LAZY_OUTPUT_SELECTION = False # gets set to true when modifying data. remembers the last output column
+        self._LAZY_OUTPUT_SELECTION = False  # gets set to true when modifying data. remembers the last output column
 
-        self._LOCAL_STORAGE = {} # cache for names and versions of imported DOEs / Structure {"name":str : version:int}
+        self._LOCAL_STORAGE = {}  # cache for names and versions of imported DOEs / Structure {"name":str : version:int}
 
-# Saving and Importing functions -------------------------------------------------------------------
+    # Saving and Importing functions -------------------------------------------------------------------
     def _folder(self):
         year, month, day, *_ = time.localtime()
         foldername = f"{year}_{month}_{day} - Results Folder"
@@ -281,9 +292,9 @@ class DataBall:
             return foldername
 
     def _filename(self):
-        return self.DOE_cache[self.DOE_active_pointer - 1 ][1]+".csv"
+        return self.DOE_cache[self.DOE_active_pointer - 1][1] + ".csv"
 
-    def saveToDirectory(self):
+    def exportToDirectory(self):
         old_dir = os.getcwd()
         os.chdir(self._folder())
 
@@ -318,7 +329,7 @@ class DataBall:
 
             selection = input("select the index of a folder or .csv file to open. (type .. to go back in folders)")
 
-            try: # goal here is to generate the filename and csv objects.
+            try:  # goal here is to generate the filename and csv objects.
                 filename = os.listdir()[int(selection)]
                 CSV = pd.read_csv(filename)
                 print("{} opened successfully".format(filename))
@@ -336,41 +347,49 @@ class DataBall:
 
         name = os.path.splitext(filename)[0]
         suffix = "_import"
-        newname = name+suffix
+        newname = name + suffix
         version = str(next(self._version(newname)))
-        columns = self.factor_names+self.output_labels
+        columns = self.factor_names + self.output_labels
 
         setattr(self, newname + version, pd.DataFrame(update_DOEmatrix_datatypes_int64(
-            CSV.values,**self.factor_class_integers), columns=columns))
+            CSV.values, **self.factor_class_integers), columns=columns))
 
         print(f"{name} was imported as self.{newname}{version}")
 
-        self.DOE_active_pointer = len(self.DOE_cache) # sends the pointer to the top of the cache.
-        self.DOE_cache.append([version, newname+version, getattr(self,newname+version)]) # adds the import
-        self.DOE_active_pointer += 1 # updates the pointer
+        self.DOE_active_pointer = len(self.DOE_cache)  # sends the pointer to the top of the cache.
+        self.DOE_cache.append([version, newname + version, getattr(self, newname + version)])  # adds the import
+        self.DOE_active_pointer += 1  # updates the pointer
 
-        self.DOE_active = getattr(self, newname+version)
+        self.DOE_active = getattr(self, newname + version)
         self.DOE_active = self.DOE_active.astype({"cycles": int})
         self.DOE_active = self.DOE_active.astype({"cycles": "Int64"})
 
-# Pointer-guided information retrieval functions -------------------------------------------------------------------
+    # Pointer-guided information retrieval functions -------------------------------------------------------------------
     def dataset(self):  # returns what the active pointer is looking at
         if self._TEMP_DATA: return self.DOE_active
         if not self._TEMP_DATA: return getattr(self, self.DOE_cache[self.DOE_active_pointer - 1][1])
 
     def dataset_DOEmatrix(self):
-        if self._TEMP_DATA: return self.DOE_active.iloc[:,:self.factor_count]
-        if not self._TEMP_DATA: return getattr(self, self.DOE_cache[self.DOE_active_pointer - 1][1]).iloc[:,:self.factor_count]
+        if self._TEMP_DATA: return self.DOE_active.iloc[:, :self.factor_count]
+        if not self._TEMP_DATA: return getattr(self, self.DOE_cache[self.DOE_active_pointer - 1][1]).iloc[:,
+                                       :self.factor_count]
 
     def dataset_results(self):
         if self._TEMP_DATA: return self.DOE_active.iloc[:, self.factor_count:]
-        if not self._TEMP_DATA: return getattr(self, self.DOE_cache[self.DOE_active_pointer - 1][1]).iloc[:, self.factor_count:]
-    def dataset_reset(self):
-        self._TEMP_DATA = False
-        self.DOE_active = self.dataset()
+        if not self._TEMP_DATA: return getattr(self, self.DOE_cache[self.DOE_active_pointer - 1][1]).iloc[:,
+                                       self.factor_count:]
 
-#  Generators for state changes --------------------------------------------------------------------------------
-    def _version(self, filename:str):
+    def dataset_reset(self):
+        self.ANALYTICS_mode()
+        self.DOE_active = getattr(self, self.DOE_cache[self.DOE_active_pointer - 1][1])
+
+    def dataset_results_pointer(self):
+        if self._LAZY_OUTPUT_SELECTION: return self.DOE_active.iloc[:, self.output_active_pointer]
+        if not self._LAZY_OUTPUT_SELECTION: return getattr(self, self.DOE_cache[self.DOE_active_pointer - 1][1]).iloc[:,
+                                                   self.output_active_pointer]
+
+    #  Generators for state changes --------------------------------------------------------------------------------
+    def _version(self, filename: str):
         """
         Returns the next version number for an imported DOE design.
 
@@ -390,48 +409,50 @@ class DataBall:
             yield self._LOCAL_STORAGE[filename]
 
     def _objectStates(self, name, states, return_cache=0):
-        GENERATOR_CACHE= "_GENERATOR_CACHE"
+        GENERATOR_CACHE = "_GENERATOR_CACHE"
         if return_cache == 1:
-            return getattr(self,GENERATOR_CACHE)
+            return getattr(self, GENERATOR_CACHE)
 
         try:
-            getattr(self,GENERATOR_CACHE)
+            getattr(self, GENERATOR_CACHE)
         except AttributeError:
-            setattr(self,GENERATOR_CACHE,{})
+            setattr(self, GENERATOR_CACHE, {})
 
         try:
             getattr(self, GENERATOR_CACHE)[name]
         except KeyError:
             getattr(self, GENERATOR_CACHE)[name] = itertools.cycle(states)
 
-# DataBall mode switches -------------------------------------------------------------------------------
+    # DataBall mode switches -------------------------------------------------------------------------------
     def ANALYTICS_mode(self):
         name = "ANALYTICS"
-        states = ["ON","OFF"]
+        states = ["ON", "OFF"]
         GENERATOR_CACHE = "_GENERATOR_CACHE"
 
         self._objectStates(name, states)
-        state = next(getattr(self,GENERATOR_CACHE)[name])
+        state = next(getattr(self, GENERATOR_CACHE)[name])
 
-        if state == states[0]: # i.e. "ON"
+        if state == states[0]:  # i.e. "ON"
             self._TEMP_DATA = True
             self._LAZY_OUTPUT_SELECTION = True
             print(f"analytics mode:{state}")
-        elif state == states[1]: # i.e. "OFF"
+            return state
+        elif state == states[1]:  # i.e. "OFF"
             self._TEMP_DATA = False
             self._LAZY_OUTPUT_SELECTION = False
             print(f"analytics mode:{state}")
+            return state
 
-
-# Input mapping function (Maps variables to pyDOE's DoE function format) -----------------------------------
+    # Input mapping function (Maps variables to pyDOE's DoE function format) -----------------------------------
     def _function_mapping(self, function):
         function_map = \
-            {sobol: [self.factor_min, self.factor_max, int(input("How many runs for the sobol?")), self.factor_count],
-             ff2n: [self.factor_count,self.factor_min,self.factor_max]
+            {sobol: [self.factor_DF.loc["min"], self.factor_DF.loc["max"], int(input("How many runs for the sobol?")),
+                     self.factor_DF.shape[1]],
+             ff2n: [self.factor_count, self.factor_DF.loc["min"], self.factor_DF.loc["max"]]
              }
         return function_map[function]
 
-# DOE design generation, caching, updating & retrieval and simulation running functions ------------------------
+    # DOE design generation, caching, updating & retrieval and simulation running functions ------------------------
     def DOE_import(self, design, self_data=True, **kwargs):
         """
         Takes in a function via the design variable.
@@ -445,7 +466,6 @@ class DataBall:
 
         """
 
-
         DOE_version = str(next(self._version(design.__name__)))
 
         if self_data:
@@ -458,9 +478,11 @@ class DataBall:
         print(self.__class__.__name__, ":", design.__name__ + DOE_version + "a",
               "generated ---> blank matrix")
 
-        self.DOE_active_pointer = len(self.DOE_cache) # sends the pointer to the top of the cache.
-        self.DOE_active_pointer += 1 # adds 1 to mark the entry of a new DOE design.
-        self.DOE_cache.append([DOE_version, design.__name__ + DOE_version, getattr(self, design.__name__ + DOE_version)])
+        self.DOE_active_pointer = len(self.DOE_cache)  # sends the pointer to the top of the cache.
+        self.DOE_active_pointer += 1  # adds 1 to mark the entry of a new DOE design.
+        self.DOE_cache.append(
+            [DOE_version, design.__name__ + DOE_version,
+             pd.DataFrame(getattr(self, design.__name__ + DOE_version), columns=self.factor_names)])
         self.DOE_active = pd.DataFrame(getattr(self, design.__name__ + DOE_version), columns=self.factor_names)
 
         self.DOE_active = self.DOE_active.astype({"cycles": int})
@@ -493,11 +515,30 @@ class DataBall:
 
         try:
             self.DOE_active = self.DOE_cache[change_int - 1][2]  # DOE cache has the matrix in index 2.
+            self.DOE_active = self.DOE_active.astype({"cycles": int})
+            self.DOE_active = self.DOE_active.astype({"cycles": "Int64"})
             self.DOE_active_pointer = change_int
         except IndexError:
             print("That index is out of bounds")
 
-    def RUN(self, **kwargs):
+    def DOE_update(self, change=False):
+
+        transposed_DF = self.factor_DF.transpose()
+
+        if not change:
+            print(self.factor_DF.transpose())
+        if change:
+            print("Factor range updates:")
+            for index in self.factor_DF.transpose().index:
+                for column in self.factor_DF.transpose().columns[[0, 1]]:
+                    try:
+                        transposed_DF.loc[index, column] = int(input(f"{index} {column}:"))
+                    except:
+                        transposed_DF.loc[index, column] = transposed_DF.loc[index, 2]
+
+        self.factor_DF = transposed_DF.transpose()
+
+    def RUN(self, hard_limit=None):
         """
         Runs Ben's PCR simulator.
         Runs the DOE design assigned by the pointer.
@@ -506,24 +547,28 @@ class DataBall:
         :param args:
         :return:
         """
+        while True:
+            if self.ANALYTICS_mode() == "OFF":
+                break
+
         results = []
         DOE_matrix = self.DOE_active
         try:
-            if type(kwargs["hard_limit"]) == int:
-                DOE_matrix = DOE_matrix.iloc[:kwargs["hard_limit"], :]  # truncates the DoE design
+            if type(int(hard_limit)) == int:
+                DOE_matrix = DOE_matrix.iloc[:int(hard_limit), :]  # truncates the DoE design
         except:
             pass
         for rows in DOE_matrix.values:
             test_run = dataframe_to_pcr_format(rows)
-            results.append(pcrsim.demo(test_run)) # This takes forever and it needs to be sorted
-
-            print("{0} out of {1}".format(len(results), len(self.DOE_active)))
+            results.append(pcrsim.demo(test_run))  # This takes forever and it needs to be sorted
+            print("{0} out of {1}".format(len(results), len(DOE_matrix)))
 
         table_DF = self._DOE_extract_data(results)
 
         setattr(self, self.DOE_cache[self.DOE_active_pointer - 1][1], table_DF)
+        self.DOE_active = self.dataset()
 
-# data wrangling functions -----------------------------------------------------
+    # data wrangling functions -----------------------------------------------------
     def _DOE_extract_data(self, data):
 
         interim_df1 = pd.DataFrame(data)
@@ -532,43 +577,84 @@ class DataBall:
 
         return final_df
 
-
-    def data_topvalues(self,n,object=False):
+    def data_topvalues(self, n, object=False):
 
         data = self.data_sort(sort_ascending=False)
 
         if self._TEMP_DATA == True:
-            self.DOE_active = self.DOE_active.iloc[:n,:]
+            self.DOE_active = self.DOE_active.iloc[:n, :]
 
             if object == True:
                 return self.DOE_active
 
         elif self._TEMP_DATA == False or object == True:
-            return data.iloc[:n,:]
+            return data.iloc[:n, :]
 
     def data_average_ranking(self):
-        pass
-    def data_sort(self,sort_ascending=True,object=False):
+        pointer_state = self._TEMP_DATA
 
-        for i in range(len(self.output_labels)):
-            print("{}. - {}".format(i,self.output_labels[i]))
+        rankings = []
 
-        selection = input("Select index of output")
+        data = self.dataset()
+        column_index = [12, 13, 14, 15]
+        _temp_attribute_list = [f"df{nr}" for nr in range(len(self.output_labels))]
 
-        if self._TEMP_DATA == True:
-            self.DOE_active.sort_values(self.output_labels[int(selection)],axis=0,inplace=True,ascending=sort_ascending)
+        version = 0
+
+        self._TEMP_DATA = False
+        for i in column_index:
+            self.output_active_pointer = i
+            sorted_column = self.data_sort(sort_ascending=False, object=True).iloc[:, i]
+            setattr(self, f"df{version}", sorted_column)
+            version += 1
+
+        for df in _temp_attribute_list:
+            _df = getattr(self, df)
+            for i in range(len(data)):
+                _df.iloc[i] = i
+
+        for row in range(len(data)):
+            result = []
+            for df in _temp_attribute_list:
+                result.append(getattr(self, df).loc[row])
+            rankings.append(result)
+
+        rankings = pd.DataFrame(rankings, columns=self.output_labels)
+        self.DOE_active["Average Ranking"] = rankings.mean(axis=1)
+
+        self._TEMP_DATA = pointer_state
+
+    def data_sort(self, sort_ascending=True, object=False, **kwargs):
+
+        try:
+            self.output_active_pointer = kwargs["select"]
+        except:
+            pass
+
+        if self._LAZY_OUTPUT_SELECTION:
+            selection = self.DOE_active.shape[1] - self.output_active_pointer - 1
+
+
+        else:
+            for i in range(len(self.output_labels)):
+                print("{}. - {}".format(i, self.output_labels[i]))
+            while True:
+                try:
+                    selection = int(input("Select an output to sort by")) + self.DOE_active.shape[1]
+                    break
+                except:
+                    print("selection needs to be an integer")
+
+        if self._TEMP_DATA:
+            self.DOE_active.sort_values(self.DOE_active.columns[selection], axis=0, inplace=True,
+                                        ascending=sort_ascending)
             if object == True:
                 return self.DOE_active
 
         elif self._TEMP_DATA == False or object == True:
-            return self.DOE_active.sort_values(self.output_labels[int(selection)],axis=0,ascending=sort_ascending)
+            return self.DOE_active.sort_values(self.output_labels[selection], axis=0, ascending=sort_ascending)
 
-
-
-
-
-
-# data plotting functions -----------------------------------------------------
+    # data plotting functions -----------------------------------------------------
     def plot(self):
 
         data = self.dataset_results()
@@ -580,13 +666,12 @@ class DataBall:
         # self.data().count()[self.output_labels[0]] returns the count of non-NaN values for column = "DNA yield (ng/uL)"
         # x_axis = a list with the rows which got populated in RUN()
 
-        grid = [position for position in itertools.product([0,1],repeat=2)]
+        grid = [position for position in itertools.product([0, 1], repeat=2)]
         label = self.output_labels
 
-        plot_layout = zip(grid,label)
+        plot_layout = zip(grid, label)
 
         for plot in plot_layout:
-            print(x_axis, data[plot[1]])
             axs[plot[0]].scatter(x_axis, data[plot[1]], marker=".")
             axs[plot[0]].set_title(plot[1])
 
@@ -599,12 +684,12 @@ class DataBall:
 
         fg, axs = plt.subplots(nrows=4, ncols=3, figsize=(10, 10), layout="constrained")
 
-        DOE_matrix, results = data.iloc[:,:self.factor_count], data.iloc[:,self.factor_count:]
+        DOE_matrix, results = data.iloc[:, :self.factor_count], data.iloc[:, self.factor_count:]
         # 0 - self.factor_count = DOE_matrix
         # self.factor_count - 16 = results
 
-        y_axis = results.iloc[:,0].values # yield column
-        
+        y_axis = results.iloc[:, 0].values  # yield column
+
         for row in range(len(axs)):
             for column in range(len(axs[row])):
                 x_axis = DOE_matrix.iloc[:, counter].values
@@ -618,6 +703,6 @@ class DataBall:
 ## script execution ----------------------------------
 
 a = DataBall()  # creates the DataBall object
-#a.DOE_import(sobol)  # creates an DOE design
-#a.RUN(hard_limit=3)  # runs the DOE design
+# a.DOE_import(sobol)  # creates an DOE design
+# a.RUN(hard_limit=3)  # runs the DOE design
 
