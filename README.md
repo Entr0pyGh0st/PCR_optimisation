@@ -1,61 +1,96 @@
-**How to use:**
-
-From no prior data:
-```python
-instance = DataBall() # creates DataBall class object
-
-instance.DOE_import(sobol) # imports a DOE design, in this case a sobol.
-
-~~~ input request: # requests user input for design-specific variables. for sobol, it will ask for total nr. of runs.
-
-instance.RUN() # runs the sobol design through the PCR simulator
-
-instance.savetoDirectory() # generates a "year_month_date - Results Folder" in curdir and saves results as sobol1_data.csv
-```
-
-From saved data:
-```python
-instance = DataBall()
-
-instance.importFromDirectory()
-
-~~~ input request: # select folder and FILE.csv through interactive menu.
-
-_creates a DataBall variable named: self.FILE_import<version>_
-
-```
 
 **Planned tasks:**
-- append the DOE matrix to the output data for future ease of use when plotting data.
-- Update and upgrade functions for DOE data visualisation to accept DataBall compatibility
+- Add functionality to the functions in Data Visualisation to accept an external variable instead of built-in data calling methods.
+- ANALYTICS_mode() clashes with Data Importing and Data Selection because of forced self.DOE_active reassignment, thus deleting the inplace copy of the active DOE file when either is called.
 
 
 
+Experimental designs are methods of querying the behaviour of complex in silico/in vivo systems in an extensive and data-efficient manner.
 
-**userguide:**
+They address a technical execution problem that arises when a scientist/engineer seeks to investigate and model a black box system with large sets of input parameters empirically. Generally speaking, both the inputs and output are usually continous and the resulting approximation model is usually a simple combination of multiple linear or quadratic models. 
 
+Whilst individual input parameter testing is feasible, accepteable and of straight forward analysis and experimental control, it's cumbersome nature of iterating through each individual factor is both resource ineficient and "low resolution" (i.e. doesn't explain how inputs can interact with eachother to impact the output, only how each input affects the output exclusively).   
+
+A subset of experimental designs addresses this by providing bespoke testing schematics that leverage controlled input aliasing (i.e. having two factors changing simultaneously in a test run) to 1) to test more inputs per test run and 2) investigate for input interactions (n-factor interactions), thus allowing for a more complete description of black box behaviour compared straightforward indididual factor testing. 
+
+Another subset of experimental designs use quasirandom sequences of numbers (low-discrepancy sequences) to generate a testing schematic that covers the experimental ranges of the input factors of a black box evenly. These are technically superior to the latter subset if not constrained by resources or time.
+
+Ben Shirt-Ediss made https://virtual-pcr.ico2s.org/pcr/, an in silico model of a PCR reaction aimed at amplifying a 1kb DNA sequence by changing the parameterization of 12 different inputs. The source code can be found at https://bitbucket.org/ben_s_e/virtual-pcr-notebook/src/main/ .Understandeably, the fact that he coded a model means that one could derive the maximum output metrics (yield, product purity) numerically. However, he and I (as found in this repo), intended that the solution be found via experimental designs, for the sakes of learning about them.
+
+This repo seeks to interface his model with pyDOE, a python module for experimental designs, to provide an interactive approach to experimental design testing without going through the web server. 
+
+------------------------------------------------------------------------------------------
+
+## Current highscore: 1.066 mg/mL, 99.6% pure, 330 second run - 1024 run SOBOL sequence
+
+------------------------------------------------------------------------------------------
+
+**How to use:**
+
+Data Generation - Generating a fresh dataset:
 ```python
-DataBall()
-# instantiating DataBall collects all factors and their data from the PCR simulator
-# generates a DataBall.factor_DF DataFrame with the data.
+instance = DataBall() # creates DataBall class object
+instance.DOE_import(sobol) # imports a DOE design, in this case from the function named sobol. Creates an internal attribute named self.<design><version>.
+~~~ input request: # requests user input for design-specific variables. for sobol, it will ask for total nr. of runs.
+instance.RUN() # runs the newly created attribute ,e.g. self.sobol1,  through the PCR simulator
 
-DataBall.DOE_import(sobol)
- # calling .DOE_import(sobol) will call pyDOE.sobol_sequence(), passign as arguments those specified via of DataBall.function_mapping(sobol)
- # creates a DataBall.sobol<version> (working test ranges given Min Max values) and a DataBall.sobol<version>**a** variable (boilerplate matrix. factors are between 0 and 1)
- # caches DataBall1.sobol<version> and sobol<version>**a** into DataBall.DOE_cache, and moves DataBall.DOE_active_pointer to it.
+```
 
+Data Exporting - Saving a dataset:
+```python
+instance.savetoDirectory() # generates a "year_month_date - Results Folder" in curdir and saves results as sobol1.csv
 
-DataBall.DOE_current_design(change="")
-# shows you what's in the DOE cache and what DOE you have selected for testing.
-# change = int changes which DOE is meant to be used for testing.
+# sobol1.csv is a 16 column file, 12 for the DOE factors, 4 for the PCR result types. Rows are the DOE test conditions followed by the respective 4 PCR results.
+# sobol1.csv can also be a 12 column file with just the DOE factors if you dont instance.RUN()
+```
 
-DataBall.RUN()
-# Takes each row of the selected DOE, passes it into DataBall.factor_DF, formats it for the PCR simulation, runs the PCR simulation for all the rows in the selected DOE.
-# **kwargs accepts {"hard_limit" = integer} to truncate the DOE design, for development reasons. 
+Data Importing - Using a saved dataset:
+```python
+instance = DataBall()
+instance.importFromDirectory()
+~~~ input request: # select folder and FILE.csv through interactive menu.
 
+# creates a DataBall variable named: self.FILE_import<version> of type pd.DataFrame
+```
 
+Data selection (IMPORTANT)
+```python
+instance.DOE_current_design() # shows what designs are currently available and activated to RUN()
+instance.DOE_current_design(change=int) # activates a different design to RUN()
 
+# the program moves a pointer (self.DOE_active_pointer) to a local cache of all DOE designs, including the recently imported.
+# the pointer will dictate what the Data calling, Data visualisation, Data Handling and Data Exporting functions will pull data from.
+# the pointer will influence Temporary State Priming functions: it will dictate what dataset will be offered for temporary modifications. 
+```
 
+Data calling:
+```python
+instance.dataset() #returns imported DOE design or the full dataset (DOE_design + appended data) if RUN() has been executed.
+instance.dataset_DOEmatrix() # returns just the DOE design.
+isntance.dataset_results() # returns just the simulation data.
+instance.dataset_reset() # resets heightened states and work done under them. Brings back the original DOE dataset.  
+```
+
+Data visualisation:
+```python
+instance.plot() # 4 scatterplots, 1 per PCR result type. (y = PCR result // x = test run nr.)
+instance.plot_byfactor() # 12 scatterplots, 1 per factor. (y = PCR result // x = factor values) ## ONLY PLOTS DNA YIELD CURRENTLY.
+```
+
+Data Handling:
+```python
+instance.data_topvalues(n=int,object=False) # Shows the top N values of the selected DOE matrix after RUN(). object=True allows assignment to a variable.
+instance.data_sort(sort_ascending=True,object=False) # sorts data on the selected DOE matrix after RUN(). sort_ascending=False changes the sort, object=True allows assignment to a variable. 
+```
+
+State priming:
+```python
+instance.ANALYTICS_mode()
+# heightened state for working and visualising data. calling it will turn it ON or OFF. default = "OFF" 
+# if OFF (default), ALL Data Handling functions WILL RETURN AN OBJECT BY DEFAULT. the underlying dataset will not be modified.
+# if ON, ALL Data Calling, Data Handling, Data visualisation and Data Saving functions will now be applicable to an inplace copy of the underlying dataset. This means that all Data Handling functions now behave as object=False.
+# However, you can still pass object=True when ANALYTICS_mode = ON to assign a variable to any modification done to the working copy of the dataset.
+```
 
 
 
