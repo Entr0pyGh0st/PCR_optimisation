@@ -14,27 +14,31 @@ Ben Shirt-Ediss made https://virtual-pcr.ico2s.org/pcr/, an in silico model of a
 
 This repo seeks to interface his model with pyDOE, a python module for experimental designs, to provide an interactive approach to experimental design testing without going through the web server. 
 
-------------------------------------------------------------------------------------------
+# Current highscore: 1.483 mg/mL, 97.6% pure, 8801-fold amplification, 22060 second run 
 
-## Current highscore: 1.483 mg/mL, 97.6% pure, 8801-fold amplification, 22060 second run
 
-------------------------------------------------------------------------------------------
+# Bugs:
+instance.importFromDirectory() doesn't revert back to original directory, thus recursively saving files.
 
-Bugs:
--instance.importFromDirectory() doesn't revert back to original directory, thus recursively saving files.
--instance.importFromDirectory() forces deletion of temp data generated under ANALYTICS_mode()
--instance.importFromDirectory() breaks when importing data with Average Rankings column appended. 
--instance.DOE_current_design() will override temp file work enabled by instance.ANALYTICS_mode()
+instance.importFromDirectory() forces deletion of temp data generated under ANALYTICS_mode()
 
-future features:
--let Data Visualisation functions use external data.
--statistical testing for interactions
--stepwise minimisation of BIC and AIC(c) of models.
--more designs: Fractional, PB, BB
--more plots: DOE mean, stdev, scatter and interaction plots ,residual by row, residual by predicted, Q-Q,
+instance.importFromDirectory() breaks when importing data with Average Rankings column appended. 
 
-**How to use:**
+instance.DOE_current_design() will override temp file work enabled by instance.ANALYTICS_mode()
 
+# Future features:
+let Data Visualisation functions use external data.
+
+statistical testing for interactions
+
+stepwise minimisation of BIC and AIC(c) of models.
+
+more designs: Fractional, PB, BB
+
+more plots: DOE mean, stdev, scatter and interaction plots ,residual by row, residual by predicted, Q-Q
+
+
+# How to use:
 Data Generation - Generating a fresh dataset:
 ```python
 instance = DataBall() # creates DataBall class object
