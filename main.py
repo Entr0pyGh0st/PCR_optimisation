@@ -1,3 +1,4 @@
+import string
 from urllib.request import urlopen, Request
 from bs4 import BeautifulSoup
 import pandas as pd
@@ -197,7 +198,7 @@ def sobol(data_package, return_design=True, **kwargs):
     for factor_nr in range(data_package[3]):
         for row_nr in range(len(DOE_design)):
             DOE_design[row_nr, factor_nr] = data_package[0].iloc[factor_nr] + (
-                        data_package[1].iloc[factor_nr] - data_package[0].iloc[factor_nr]) * DOE_design[
+                    data_package[1].iloc[factor_nr] - data_package[0].iloc[factor_nr]) * DOE_design[
                                                 row_nr, factor_nr]
     if not return_design:
         return DOE_design
@@ -231,11 +232,127 @@ def update_DOEmatrix_datatypes_int64(DOE_matrix, **kwargs):
     :param kwargs: {factor_name:column_index}
     :return: updated DOE_matrix
     """
+    print(DOE_matrix.shape)
+    print(DOE_matrix)
     for keys in kwargs:
-        for rows in DOE_matrix[:, kwargs[keys]]:
-            DOE_matrix[int(rows), kwargs[keys]].astype(np.int64)
+        for rows in DOE_matrix:
+            rows[kwargs[keys]].astype(np.int64)
     return DOE_matrix
 
+
+def fractionalFactorial(data_package):  # factors, resolution, min, max
+    design1 = pyDOE.fracfact_by_res(data_package[0], data_package[1])
+    design2 = pyDOE.fracfact_by_res(data_package[0], data_package[1])
+
+    for factor_nr in range(data_package[0]):
+        for row_nr in range(len(design1)):
+            design1[row_nr, factor_nr] = data_package[2].iloc[factor_nr] + (
+                    data_package[3].iloc[factor_nr] - data_package[2].iloc[factor_nr]) * (
+                                                     design1[row_nr, factor_nr] + 1) / 2
+
+    return design1, design2
+
+
+class ANOVA:
+    def __init__(self, dataframe, factor_DF, factor_label: str, result_name: str):
+        self.data = dataframe  # MUST BE A PANDAS DATA FRAME. has the DOE design + it's results.
+        self.factor_DF = factor_DF  # MUST BE A PANDAS DATA FRAME. has all the info on the input factors.
+        self.input_data = self.data.iloc[:,:self.factor_DF.shape[1]]
+        self.output_data = self.data.iloc[:,self.factor_DF.shape[1]:]
+        self.result_name = result_name
+        self.factor_label = factor_label
+
+    def VarianceSource(self, factor_string: str):
+        lst = factor_string.split(" ")
+        lst.append("Pure Error")
+        return lst
+
+    def SSxy(self):
+        # SSfactor = SUM(Xi*Yi) - n Xavg*Yavg
+
+        part1 = sum(np.prod([self.data.loc[:, self.factor_label], self.data.loc[:, self.result_name]], axis=0))
+        part2 = self.data.shape[0] * np.average(self.data.loc[:, self.factor_label]) * np.average(
+            self.data.loc[:, self.result_name])
+        SSFactor = part1 - part2
+        return SSFactor
+
+    def SS(self, column):
+        # SS = SUM(Xi^2) - n * Xavg^2
+        part1 = sum([self.data.loc[row, column] ** 2 for row in range(self.data.shape[0])])
+        part2 = self.data.shape[0] * np.average(self.data.loc[:, column]) ** 2
+        SS = part1 - part2
+        return SS
+
+    def slope(self):
+        return self.SSxy() / self.SS(self.factor_label)
+
+    def SSregression(self):
+        return self.slope() * self.SSxy()
+
+    def SStotal(self):
+        # SUM(Yi^2) - SUM(Yi)^2/n
+        part1 = sum(self.data.loc[:, self.result_name] ** 2)
+        part2 = (sum(self.data.loc[:, self.result_name]) ** 2) / self.data.shape[0]
+        SStotal = part1 - part2
+        return SStotal
+
+    def SSerror(self):
+        return self.SStotal() - self.SSregression()
+
+    def degreesFreedom(self, type):
+        if type == "regression":
+            return 1
+        elif type == "error":
+            return self.data.shape[0] - 2
+        elif type == "total":
+            return self.data.shape[0] - 1
+
+    def MSquare(self, type):
+        # type can be "regression" or "error"
+        if type == "regression":
+            return self.SSregression() / self.degreesFreedom(type=type)
+        elif type == "error":
+            return self.SSerror() / self.degreesFreedom(type=type)
+    def Ftest(self):
+        return self.MSquare("regression") / self.MSquare("error")
+
+    def tabled_results(self):
+        header = ["Sum of Squares", "df", "Mean Square", "F ratio"]
+        rows = ["Regression", "Error", "Total"]
+        data = []
+
+        for i in range(len(rows)):
+            if i == 0:
+                data.append(
+                    [self.SSregression(), self.degreesFreedom(rows[i].lower()), self.MSquare(rows[i].lower()),
+                     self.Ftest()])
+                continue
+            elif i == 1:
+                data.append([self.SSerror(), self.degreesFreedom(rows[i].lower()),
+                             self.MSquare(rows[i].lower())])
+                continue
+            elif i == 2:
+                data.append([self.SStotal(), self.degreesFreedom(rows[i].lower())])
+                continue
+        return pd.DataFrame(data, index=rows, columns=header)
+
+    def regression(self):
+        b1 = self.SSxy() / self.SS(self.factor_label)
+        b2 = np.average(self.data.loc[:,self.result_name]) - b1 * np.average(self.data.loc[:,self.factor_label])
+        return b1,b2
+
+    def t_test(self,b1,b2):
+        t0_intercept = b2/np.sqrt(self.MSquare("error")*self.data.shape[0] + (np.average(self.data.loc[:,self.factor_label])/self.SS(self.factor_label)))
+        t0_slope = b1 / np.sqrt(self.MSquare("error") / self.SS(self.factor_label))
+
+        intercept_p_value = 2 * np.e ** (-t0_intercept**2/2)/np.sqrt(2*np.pi)
+        slope_p_value = 2 * np.e ** (-t0_slope**2/2)/np.sqrt(2*np.pi)
+
+        return intercept_p_value, slope_p_value
+
+    def coefficient_matrix(self):
+        b1 = np.linalg.pinv(self.input_data.transpose() * self.input_data) * self.input_data.transpose()* self.output_data.iloc[0]
+        return b1
 
 class DataBall:
     """
@@ -268,6 +385,7 @@ class DataBall:
         self.factor_DF = dataframe_generate(self.datapackage, self.factor_attributes, self.factor_names)
         self.factor_names = [factors for factors in self.factor_DF.columns]  # updates factor names with the true ones.
         self.factor_count = len(self.factor_names)
+        self.factor_DF_cache = []  # Structure: [ [index:int,"DOE_<version> - <DOE_design> factor_DF <version>", NxM matrix:list of lists] ]
 
         self.DOE_cache = []  # Structure: [ [index:int,"DOE_<version> - <DOE_design>", NxM matrix:list of lists] ]
         self.DOE_version = 0
@@ -293,6 +411,20 @@ class DataBall:
 
     def _filename(self):
         return self.DOE_cache[self.DOE_active_pointer - 1][1] + ".csv"
+
+    def importFactorDF(self,name,version):
+
+        columnIndex = int(input("How many factor columns are there?"))
+        columnLabels = self.dataset().columns[:columnIndex]
+        rowLabels = ["min","max","value"]
+        values = [[min(self.dataset().iloc[:,index]), max(self.dataset().iloc[:,index]),0] for index in range(columnIndex)]
+
+        _tempDF = pd.DataFrame(zip(*values), index=rowLabels, columns=columnLabels)
+
+        _filename = "factor_DF_"+ name
+
+        self.factor_DF_cache.append([version,_filename,_tempDF])
+        self.factor_DF = _tempDF
 
     def exportToDirectory(self):
         old_dir = os.getcwd()
@@ -363,6 +495,8 @@ class DataBall:
         self.DOE_active = getattr(self, newname + version)
         self.DOE_active = self.DOE_active.astype({"cycles": int})
         self.DOE_active = self.DOE_active.astype({"cycles": "Int64"})
+
+        self.importFactorDF(newname,version)
 
     # Pointer-guided information retrieval functions -------------------------------------------------------------------
     def dataset(self):  # returns what the active pointer is looking at
@@ -448,8 +582,10 @@ class DataBall:
         function_map = \
             {sobol: [self.factor_DF.loc["min"], self.factor_DF.loc["max"], int(input("How many runs for the sobol?")),
                      self.factor_DF.shape[1]],
-             ff2n: [self.factor_count, self.factor_DF.loc["min"], self.factor_DF.loc["max"]]
+             ff2n: [self.factor_count, self.factor_DF.loc["min"], self.factor_DF.loc["max"]],
+             fractionalFactorial: [self.factor_count, 4, self.factor_DF.loc["min"], self.factor_DF.loc["max"]]
              }
+        # factors, resolution, min, max
         return function_map[function]
 
     # DOE design generation, caching, updating & retrieval and simulation running functions ------------------------
@@ -518,6 +654,9 @@ class DataBall:
             self.DOE_active = self.DOE_active.astype({"cycles": int})
             self.DOE_active = self.DOE_active.astype({"cycles": "Int64"})
             self.DOE_active_pointer = change_int
+
+            self.factor_DF = self.factor_DF_cache[change_int -1][2] #factor_df cache has the matrix in index 2.
+
         except IndexError:
             print("That index is out of bounds")
 
@@ -705,4 +844,3 @@ class DataBall:
 a = DataBall()  # creates the DataBall object
 # a.DOE_import(sobol)  # creates an DOE design
 # a.RUN(hard_limit=3)  # runs the DOE design
-
