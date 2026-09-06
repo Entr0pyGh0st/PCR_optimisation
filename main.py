@@ -1,5 +1,7 @@
 import string
 from urllib.request import urlopen, Request
+
+import dmba
 from bs4 import BeautifulSoup
 import pandas as pd
 import pyDOE
@@ -252,27 +254,82 @@ def fractionalFactorial(data_package):  # factors, resolution, min, max
 
     return design1, design2
 
+class REGRESSION:
+    """
+    Regression returns the b0 and b1 coefficients of single or multiple linear regressions.
+    It also serves to streamline implementation of stepwise factor minimisation.
+    """
+
+    def __init__ (self,DataBall_object, x_list:list, y:str):
+        self.DataBall_object = DataBall_object
+        self.data = DataBall_object.dataset()
+        self.x_list = x_list
+        self.y = y
+        pass
+    def linear_reg(self):
+        ANOVA_object = ANOVA(self.DataBall_object,self.x_list,self.y)
+
+        if len(self.x_list) == 1:
+            self.rc =[ANOVA_object.regression()] # contains slope and intercept coefficients, respectively
+            ANOVA_object.ANOVA_test()
+        if len(self.x_list) >= 2:
+            self.rc = ANOVA_object.coefficient_matrix() # contains intercept and slope coefficients.
+            ANOVA_object.MANOVA_test()
+
+        MODEL_ANALYSIS_object = MODEL_ANALYSIS(ANOVA_object)
+        MODEL_ANALYSIS_object.RUN()
+
+        return MODEL_ANALYSIS_object.data
+
+    def AIC_criterion(self):
+        y = self.data[self.y]
+        y_pred = self.linear_reg()["y_predicted"]
+
+        if len(self.x_list) == 0:
+            return dmba.AIC_score(y,np.average(y.values) * y.shape[0],df=1)
+        return dmba.AIC_score(y,y_pred,df=len(self.x_list))
+
+
+
+
+
+
+
 
 class ANOVA:
-    def __init__(self, dataframe, factor_DF, factor_label: str, result_name: str):
-        self.data = dataframe  # MUST BE A PANDAS DATA FRAME. has the DOE design + it's results.
-        self.factor_DF = factor_DF  # MUST BE A PANDAS DATA FRAME. has all the info on the input factors.
-        self.input_data = self.data.iloc[:,:self.factor_DF.shape[1]]
-        self.output_data = self.data.iloc[:,self.factor_DF.shape[1]:]
-        self.result_name = result_name
-        self.factor_label = factor_label
 
-    def VarianceSource(self, factor_string: str):
-        lst = factor_string.split(" ")
-        lst.append("Pure Error")
-        return lst
+    def __init__(self, DataBall_object,x_list:list,y):
+        """
+        Does ANOVA testing for single and multiple factor models.
+        x factor(s) must be passed as a list (e.g. ["cycles","denaturation time", ... ]
+        y must be passed a string
+        :param DataBall_object:
+        :param x_list:
+        :param y:
+        """
 
+        self.data = DataBall_object.dataset()  # MUST BE A PANDAS DATA FRAME. has the DOE design + it's results.
+        self.factor_DF = DataBall_object.factor_DF  # MUST BE A PANDAS DATA FRAME. has all the info on the input factors.
+
+        if type(x_list) == list and len(x_list) > 1:
+            self.input_data = self.data[x_list]
+            self.factor_label = x_list
+        if type(x_list) == list and len(x_list) == 1:
+            self.input_data = self.data[x_list]
+            self.factor_label = x_list[0]
+
+        self.input_data.insert(0, 'identity', pd.Series([1 for n in range(self.input_data.shape[0])]))
+        self.output_data = DataBall_object.dataset()[y]
+        self.result_name = y
+
+
+# (SIMPLE) LINEAR REGRESSION ---------------------------------------------------
     def SSxy(self):
         # SSfactor = SUM(Xi*Yi) - n Xavg*Yavg
 
-        part1 = sum(np.prod([self.data.loc[:, self.factor_label], self.data.loc[:, self.result_name]], axis=0))
-        part2 = self.data.shape[0] * np.average(self.data.loc[:, self.factor_label]) * np.average(
-            self.data.loc[:, self.result_name])
+        part1 = sum(np.prod([self.data[self.factor_label], self.data[self.result_name]], axis=0))
+        part2 = self.data.shape[0] * np.average(self.data[self.factor_label].values) * np.average(
+            self.data[self.result_name].values)
         SSFactor = part1 - part2
         return SSFactor
 
@@ -296,9 +353,11 @@ class ANOVA:
         SStotal = part1 - part2
         return SStotal
 
-    def SSerror(self):
-        return self.SStotal() - self.SSregression()
-
+    def SSerror(self,type="simple"):
+        if type == "simple":
+            return self.SStotal() - self.SSregression()
+        if type == "matrix":
+            return self.SStotal_matrix() - self.SSregression_matrix()
     def degreesFreedom(self, type):
         if type == "regression":
             return 1
@@ -337,22 +396,159 @@ class ANOVA:
         return pd.DataFrame(data, index=rows, columns=header)
 
     def regression(self):
-        b1 = self.SSxy() / self.SS(self.factor_label)
-        b2 = np.average(self.data.loc[:,self.result_name]) - b1 * np.average(self.data.loc[:,self.factor_label])
-        return b1,b2
+        slope = self.SSxy() / self.SS(self.factor_label)
+        intercept = np.average(self.data.loc[:,self.result_name]) - slope * np.average(self.data.loc[:,self.factor_label])
+        return slope, intercept
 
-    def t_test(self,b1,b2):
-        t0_intercept = b2/np.sqrt(self.MSquare("error")*self.data.shape[0] + (np.average(self.data.loc[:,self.factor_label])/self.SS(self.factor_label)))
-        t0_slope = b1 / np.sqrt(self.MSquare("error") / self.SS(self.factor_label))
+    def t_test(self,slope_coefficient,intercept_coefficient):
+        t0_intercept = intercept_coefficient /np.sqrt(self.MSquare("error")*self.data.shape[0] + (np.average(self.data.loc[:,self.factor_label])/self.SS(self.factor_label)))
+        t0_slope = slope_coefficient / np.sqrt(self.MSquare("error") / self.SS(self.factor_label))
 
         intercept_p_value = 2 * np.e ** (-t0_intercept**2/2)/np.sqrt(2*np.pi)
         slope_p_value = 2 * np.e ** (-t0_slope**2/2)/np.sqrt(2*np.pi)
 
         return intercept_p_value, slope_p_value
 
+# MULTIPLE LINEAR REGRESSION ---------------------------------------------------
     def coefficient_matrix(self):
-        b1 = np.linalg.pinv(self.input_data.transpose() * self.input_data) * self.input_data.transpose()* self.output_data.iloc[0]
+        X = self.input_data.values # Changing which x_list are passed via self.input_data will return different slopes.
+
+        Y =  self.output_data.values
+        XtX = X.T @ X
+        b1 = np.linalg.pinv(XtX) @ X.T @ Y
+
+        # b1 = np.linalg.pinv(self.input_data.transpose() * self.input_data) * self.input_data.transpose()* self.out_data.iloc[0]
+
         return b1
+
+    def SStotal_matrix(self):
+        Y = self.output_data.values
+        YtY = Y.T @ Y
+        nY2 = len(Y) * np.average(Y) ** 2
+
+        return YtY - nY2
+    def SSregression_matrix(self):
+        X = self.input_data.values
+        Y = self.output_data.values
+        b1 = self.coefficient_matrix()
+
+        B1XtY = b1.T @ X.T @ Y
+        nY2 = len(Y) * np.average(Y) ** 2
+
+        return B1XtY - nY2
+
+    def SSerror_matrix(self):
+        return self.SStotal_matrix() - self.SSregression_matrix()
+    def degreesFreedom_matrix(self,type):
+        k = self.input_data.shape[1]
+        n = self.input_data.shape[0]
+        if type == "regression":
+            return k - 1
+        if type == "error":
+            return n - k # k is 12 + 1. 12 factors + 1 identity column. the - 1 here is omitted.
+        if type == "total":
+            return n - 1
+
+    def MSquare_matrix(self):
+        SSregression = self.SSregression_matrix()
+        SStotal = self.SStotal_matrix()
+        SSerror = SStotal - SSregression
+        df_r = self.degreesFreedom_matrix("regression")
+        df_e = self.degreesFreedom_matrix("error")
+        return SSregression / df_r, SSerror / df_e
+
+    def Ftest_matrix (self):
+        a,b = self.MSquare_matrix()
+        return a / b
+
+    def Rsquared_matrix (self):
+        Rsquared = self.SSregression_matrix() / self.SStotal_matrix()
+        Rsquared_adjusted = 1 - (self.degreesFreedom_matrix("total"))/(self.degreesFreedom_matrix("error")) * ( 1 - Rsquared)
+        return [Rsquared, Rsquared_adjusted]
+
+    def tabled_results_matrix(self):
+        header = ["Sum of Squares", "df", "Mean Square", "F ratio", "R2","R2_adjusted"]
+        rows = ["Regression", "Error", "Total"]
+        data = []
+
+        for i in range(len(rows)):
+            if i == 0:
+                data.append(
+                    [self.SSregression_matrix(), self.degreesFreedom_matrix("regression"), self.MSquare_matrix()[0],
+                     self.Ftest_matrix(),self.Rsquared_matrix()[0],self.Rsquared_matrix()[1]])
+                continue
+            elif i == 1:
+                data.append([self.SSerror_matrix(), self.degreesFreedom_matrix("error"),
+                             self.MSquare_matrix()[1]])
+                continue
+            elif i == 2:
+                data.append([self.SStotal_matrix(), self.degreesFreedom_matrix("total")])
+                continue
+        return pd.DataFrame(data, index=rows, columns=header)
+    def ANOVA_test(self):
+        self.tabled_results()
+    def MANOVA_test(self):
+        self.tabled_results_matrix()
+class MODEL_ANALYSIS():
+    def __init__(self, ANOVA_object):
+        self.rc = ANOVA_object.coefficient_matrix()
+        self.data = ANOVA_object.data
+        self.input_data = ANOVA_object.input_data
+        self.out_data = ANOVA_object.output_data
+        self.y = ANOVA_object.result_name
+    def hat_matrix(self):
+        data = self.data.values
+        return data @ np.linalg.pinv(data.T @ data) @ data.T
+
+
+    def y_pred(self, append=True):
+        row_count = self.data.shape[0]
+        coefficients = self.rc
+        y_pred = []
+
+        for i in range(row_count):
+            row_values = self.input_data.iloc[i, :]
+            y_pred.append(sum(row_values * coefficients))
+
+
+        if append:
+            self.data["y_predicted"] = y_pred
+        elif not append:
+            return y_pred
+
+    def resid(self,append=True):
+        if append:
+            self.data["residual"] = self.data["y_predicted"] - self.out_data
+        elif not append:
+            return [self.data.loc["y_predicted"] - self.out_data]
+
+    def MSE(self,column:str):
+        n = self.data.shape[0]
+        SUMe2 = sum(self.data[column] **2)
+        return SUMe2 / n
+    def std_resid(self,append=True):
+        MSEresiduals = self.MSE("residual")
+        hat_matrix = np.array(self.hat_matrix())
+        standardized_residuals = []
+        row_nr = self.data.shape[0]
+
+        # ith row standard_residual = (ith row residual) / sqrt(Mean Squared error of residuals * (1 - diagonal of hat matrix))
+        for i in range(row_nr):
+            ith_std_resid = self.data.loc[i, "residual"] / np.sqrt(MSEresiduals *(1 - hat_matrix[i, i]))
+            standardized_residuals.append(ith_std_resid)
+
+        if append:
+            self.data["std_residual"] = standardized_residuals
+        if not append:
+            return standardized_residuals
+
+    def RUN(self):
+        self.y_pred()
+        self.resid()
+        self.std_resid()
+
+
+
 
 class DataBall:
     """
