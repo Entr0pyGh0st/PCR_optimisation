@@ -10,6 +10,7 @@ import csv
 import time
 import os
 import itertools
+import scipy.stats as st
 
 from pcrmachine import pcrparam
 from pcrmachine import pcrsim
@@ -234,8 +235,8 @@ def update_DOEmatrix_datatypes_int64(DOE_matrix, **kwargs):
     :param kwargs: {factor_name:column_index}
     :return: updated DOE_matrix
     """
-    print(DOE_matrix.shape)
-    print(DOE_matrix)
+    print("Imported file shape: ",DOE_matrix.shape)
+
     for keys in kwargs:
         for rows in DOE_matrix:
             rows[kwargs[keys]].astype(np.int64)
@@ -250,9 +251,10 @@ def fractionalFactorial(data_package):  # factors, resolution, min, max
         for row_nr in range(len(design1)):
             design1[row_nr, factor_nr] = data_package[2].iloc[factor_nr] + (
                     data_package[3].iloc[factor_nr] - data_package[2].iloc[factor_nr]) * (
-                                                     design1[row_nr, factor_nr] + 1) / 2
+                                                 design1[row_nr, factor_nr] + 1) / 2
 
     return design1, design2
+
 
 class REGRESSION:
     """
@@ -260,45 +262,67 @@ class REGRESSION:
     It also serves to streamline implementation of stepwise factor minimisation.
     """
 
-    def __init__ (self,DataBall_object, x_list:list, y:str):
+    def __init__(self, DataBall_object, x_list: list, y: str):
         self.DataBall_object = DataBall_object
         self.data = DataBall_object.dataset()
         self.x_list = x_list
         self.y = y
         pass
-    def linear_reg(self):
-        ANOVA_object = ANOVA(self.DataBall_object,self.x_list,self.y)
+
+    def linear_reg(self, *args):
+        try:
+            x_list = args[0]
+            ANOVA_object = ANOVA(self.DataBall_object, x_list, self.y)
+        except:
+            ANOVA_object = ANOVA(self.DataBall_object, self.x_list, self.y)
 
         if len(self.x_list) == 1:
-            self.rc =[ANOVA_object.regression()] # contains slope and intercept coefficients, respectively
-            ANOVA_object.ANOVA_test()
-        if len(self.x_list) >= 2:
-            self.rc = ANOVA_object.coefficient_matrix() # contains intercept and slope coefficients.
-            ANOVA_object.MANOVA_test()
+            self.rc = [ANOVA_object.regression()]  # contains slope and intercept coefficients, respectively
+
+        if len(self.x_list) > 1:
+            self.rc = ANOVA_object.coefficient_matrix()  # contains intercept and slope coefficients.
 
         MODEL_ANALYSIS_object = MODEL_ANALYSIS(ANOVA_object)
         MODEL_ANALYSIS_object.RUN()
 
         return MODEL_ANALYSIS_object.data
 
-    def AIC_criterion(self):
+    def AIC_criterion(self, *args):
+        try:
+            y_pred = args[0]["y_predicted"].values
+            print("shape: ", y_pred.shape, "type: ", type(y_pred))
+        except:
+            y_pred = self.linear_reg()["y_predicted"].values
+
+        try:
+            x_list = args[1]
+        except:
+            x_list = self.x_list
+
+        y = self.data[self.y]
+
+        print(x_list)
+        if len(x_list) == 0:
+            return dmba.AIC_score(y, [np.average(y.values)] * y.shape[0], df=1)
+        return dmba.AIC_score(y, y_pred, df=len(x_list))
+
+    def BIC_criterion(self):
         y = self.data[self.y]
         y_pred = self.linear_reg()["y_predicted"]
 
         if len(self.x_list) == 0:
-            return dmba.AIC_score(y,np.average(y.values) * y.shape[0],df=1)
-        return dmba.AIC_score(y,y_pred,df=len(self.x_list))
+            return dmba.BIC_score(y, np.average(y.values) * y.shape[0], df=1)
+        return dmba.BIC_score(y, y_pred, df=len(self.x_list))
 
-
-
-
-
-
+    def stepwise_minimization(self):
+        best_model, best_variables = dmba.stepwise_selection(self.x_list, self.linear_reg, self.AIC_criterion,
+                                                             direction="bacwkard", verbose=True)
+        return best_model, best_variables
 
 
 class ANOVA:
 
-    def __init__(self, DataBall_object,x_list:list,y):
+    def __init__(self, DataBall_object, x_list: list, y):
         """
         Does ANOVA testing for single and multiple factor models.
         x factor(s) must be passed as a list (e.g. ["cycles","denaturation time", ... ]
@@ -322,8 +346,7 @@ class ANOVA:
         self.output_data = DataBall_object.dataset()[y]
         self.result_name = y
 
-
-# (SIMPLE) LINEAR REGRESSION ---------------------------------------------------
+    # (SIMPLE) LINEAR REGRESSION ---------------------------------------------------
     def SSxy(self):
         # SSfactor = SUM(Xi*Yi) - n Xavg*Yavg
 
@@ -353,11 +376,12 @@ class ANOVA:
         SStotal = part1 - part2
         return SStotal
 
-    def SSerror(self,type="simple"):
+    def SSerror(self, type="simple"):
         if type == "simple":
             return self.SStotal() - self.SSregression()
         if type == "matrix":
             return self.SStotal_matrix() - self.SSregression_matrix()
+
     def degreesFreedom(self, type):
         if type == "regression":
             return 1
@@ -372,10 +396,11 @@ class ANOVA:
             return self.SSregression() / self.degreesFreedom(type=type)
         elif type == "error":
             return self.SSerror() / self.degreesFreedom(type=type)
+
     def Ftest(self):
         return self.MSquare("regression") / self.MSquare("error")
 
-    def tabled_results(self):
+    def ANOVA_test(self):
         header = ["Sum of Squares", "df", "Mean Square", "F ratio"]
         rows = ["Regression", "Error", "Total"]
         data = []
@@ -397,23 +422,25 @@ class ANOVA:
 
     def regression(self):
         slope = self.SSxy() / self.SS(self.factor_label)
-        intercept = np.average(self.data.loc[:,self.result_name]) - slope * np.average(self.data.loc[:,self.factor_label])
+        intercept = np.average(self.data.loc[:, self.result_name]) - slope * np.average(
+            self.data.loc[:, self.factor_label])
         return slope, intercept
 
-    def t_test(self,slope_coefficient,intercept_coefficient):
-        t0_intercept = intercept_coefficient /np.sqrt(self.MSquare("error")*self.data.shape[0] + (np.average(self.data.loc[:,self.factor_label])/self.SS(self.factor_label)))
+    def t_test(self, slope_coefficient, intercept_coefficient):
+        t0_intercept = intercept_coefficient / np.sqrt(self.MSquare("error") * self.data.shape[0] + (
+                np.average(self.data.loc[:, self.factor_label]) / self.SS(self.factor_label)))
         t0_slope = slope_coefficient / np.sqrt(self.MSquare("error") / self.SS(self.factor_label))
 
-        intercept_p_value = 2 * np.e ** (-t0_intercept**2/2)/np.sqrt(2*np.pi)
-        slope_p_value = 2 * np.e ** (-t0_slope**2/2)/np.sqrt(2*np.pi)
+        intercept_p_value = 2 * np.e ** (-t0_intercept ** 2 / 2) / np.sqrt(2 * np.pi)
+        slope_p_value = 2 * np.e ** (-t0_slope ** 2 / 2) / np.sqrt(2 * np.pi)
 
         return intercept_p_value, slope_p_value
 
-# MULTIPLE LINEAR REGRESSION ---------------------------------------------------
+    # MULTIPLE LINEAR REGRESSION ---------------------------------------------------
     def coefficient_matrix(self):
-        X = self.input_data.values # Changing which x_list are passed via self.input_data will return different slopes.
+        X = self.input_data.values  # Changing which x_list are passed via self.input_data will return different slopes.
 
-        Y =  self.output_data.values
+        Y = self.output_data.values
         XtX = X.T @ X
         b1 = np.linalg.pinv(XtX) @ X.T @ Y
 
@@ -427,6 +454,7 @@ class ANOVA:
         nY2 = len(Y) * np.average(Y) ** 2
 
         return YtY - nY2
+
     def SSregression_matrix(self):
         X = self.input_data.values
         Y = self.output_data.values
@@ -439,13 +467,14 @@ class ANOVA:
 
     def SSerror_matrix(self):
         return self.SStotal_matrix() - self.SSregression_matrix()
-    def degreesFreedom_matrix(self,type):
+
+    def degreesFreedom_matrix(self, type):
         k = self.input_data.shape[1]
         n = self.input_data.shape[0]
         if type == "regression":
             return k - 1
         if type == "error":
-            return n - k # k is 12 + 1. 12 factors + 1 identity column. the - 1 here is omitted.
+            return n - k  # k is 12 + 1. 12 factors + 1 identity column. the - 1 here is omitted.
         if type == "total":
             return n - 1
 
@@ -457,17 +486,18 @@ class ANOVA:
         df_e = self.degreesFreedom_matrix("error")
         return SSregression / df_r, SSerror / df_e
 
-    def Ftest_matrix (self):
-        a,b = self.MSquare_matrix()
+    def Ftest_matrix(self):
+        a, b = self.MSquare_matrix()
         return a / b
 
-    def Rsquared_matrix (self):
+    def Rsquared_matrix(self):
         Rsquared = self.SSregression_matrix() / self.SStotal_matrix()
-        Rsquared_adjusted = 1 - (self.degreesFreedom_matrix("total"))/(self.degreesFreedom_matrix("error")) * ( 1 - Rsquared)
+        Rsquared_adjusted = 1 - (self.degreesFreedom_matrix("total")) / (self.degreesFreedom_matrix("error")) * (
+                1 - Rsquared)
         return [Rsquared, Rsquared_adjusted]
 
-    def tabled_results_matrix(self):
-        header = ["Sum of Squares", "df", "Mean Square", "F ratio", "R2","R2_adjusted"]
+    def MANOVA_test(self):
+        header = ["Sum of Squares", "df", "Mean Square", "F ratio", "R2", "R2_adjusted"]
         rows = ["Regression", "Error", "Total"]
         data = []
 
@@ -475,7 +505,7 @@ class ANOVA:
             if i == 0:
                 data.append(
                     [self.SSregression_matrix(), self.degreesFreedom_matrix("regression"), self.MSquare_matrix()[0],
-                     self.Ftest_matrix(),self.Rsquared_matrix()[0],self.Rsquared_matrix()[1]])
+                     self.Ftest_matrix(), self.Rsquared_matrix()[0], self.Rsquared_matrix()[1]])
                 continue
             elif i == 1:
                 data.append([self.SSerror_matrix(), self.degreesFreedom_matrix("error"),
@@ -485,21 +515,18 @@ class ANOVA:
                 data.append([self.SStotal_matrix(), self.degreesFreedom_matrix("total")])
                 continue
         return pd.DataFrame(data, index=rows, columns=header)
-    def ANOVA_test(self):
-        self.tabled_results()
-    def MANOVA_test(self):
-        self.tabled_results_matrix()
+
 class MODEL_ANALYSIS():
     def __init__(self, ANOVA_object):
         self.rc = ANOVA_object.coefficient_matrix()
         self.data = ANOVA_object.data
-        self.input_data = ANOVA_object.input_data
-        self.out_data = ANOVA_object.output_data
+        self.input_data = ANOVA_object.input_data.copy()
+        self.out_data = ANOVA_object.output_data.copy()
         self.y = ANOVA_object.result_name
+
     def hat_matrix(self):
         data = self.data.values
         return data @ np.linalg.pinv(data.T @ data) @ data.T
-
 
     def y_pred(self, append=True):
         row_count = self.data.shape[0]
@@ -510,23 +537,23 @@ class MODEL_ANALYSIS():
             row_values = self.input_data.iloc[i, :]
             y_pred.append(sum(row_values * coefficients))
 
-
         if append:
             self.data["y_predicted"] = y_pred
         elif not append:
             return y_pred
 
-    def resid(self,append=True):
+    def resid(self, append=True):
         if append:
             self.data["residual"] = self.data["y_predicted"] - self.out_data
         elif not append:
             return [self.data.loc["y_predicted"] - self.out_data]
 
-    def MSE(self,column:str):
+    def MSE(self, column: str):
         n = self.data.shape[0]
-        SUMe2 = sum(self.data[column] **2)
+        SUMe2 = sum(self.data[column] ** 2)
         return SUMe2 / n
-    def std_resid(self,append=True):
+
+    def std_resid(self, append=True):
         MSEresiduals = self.MSE("residual")
         hat_matrix = np.array(self.hat_matrix())
         standardized_residuals = []
@@ -534,7 +561,7 @@ class MODEL_ANALYSIS():
 
         # ith row standard_residual = (ith row residual) / sqrt(Mean Squared error of residuals * (1 - diagonal of hat matrix))
         for i in range(row_nr):
-            ith_std_resid = self.data.loc[i, "residual"] / np.sqrt(MSEresiduals *(1 - hat_matrix[i, i]))
+            ith_std_resid = self.data.loc[i, "residual"] / np.sqrt(MSEresiduals * (1 - hat_matrix[i, i]))
             standardized_residuals.append(ith_std_resid)
 
         if append:
@@ -545,9 +572,7 @@ class MODEL_ANALYSIS():
     def RUN(self):
         self.y_pred()
         self.resid()
-        self.std_resid()
-
-
+        # self.std_resid()
 
 
 class DataBall:
@@ -608,19 +633,6 @@ class DataBall:
     def _filename(self):
         return self.DOE_cache[self.DOE_active_pointer - 1][1] + ".csv"
 
-    def importFactorDF(self,name,version):
-
-        columnIndex = int(input("How many factor columns are there?"))
-        columnLabels = self.dataset().columns[:columnIndex]
-        rowLabels = ["min","max","value"]
-        values = [[min(self.dataset().iloc[:,index]), max(self.dataset().iloc[:,index]),0] for index in range(columnIndex)]
-
-        _tempDF = pd.DataFrame(zip(*values), index=rowLabels, columns=columnLabels)
-
-        _filename = "factor_DF_"+ name
-
-        self.factor_DF_cache.append([version,_filename,_tempDF])
-        self.factor_DF = _tempDF
 
     def exportToDirectory(self):
         old_dir = os.getcwd()
@@ -648,51 +660,124 @@ class DataBall:
         the new instance will be labelled self.FILE_import<version>
         <version> is pulled from self._version, where the program checks for duplicate imports and updates the version.
 
-        :return: [.csv file name, .csv data]
+        :return: [.csv file file_name, .csv data]
         """
 
-        while True:
-            for keys, files in enumerate(os.listdir()):
-                print(f"keys: {keys}, files: {files}")
+        old_directory = os.getcwd()
 
-            selection = input("select the index of a folder or .csv file to open. (type .. to go back in folders)")
+        def openFile():
+            while True:
+                for keys, files in enumerate(os.listdir()):
+                    print(f"keys: {keys}, files: {files}")
 
-            try:  # goal here is to generate the filename and csv objects.
-                filename = os.listdir()[int(selection)]
-                CSV = pd.read_csv(filename)
-                print("{} opened successfully".format(filename))
-                break
-            except:
-                pass
+                selection = input("select the index of a folder or .csv file to open. (type .. to go back in folders)")
 
-            try:
-                os.chdir(os.listdir()[int(selection)])
-            except:
-                pass
+                try:  # goal here is to generate the filename and csv objects.
+                    filename = os.listdir()[int(selection)]
+                    CSV = pd.read_csv(filename)
+                    print("{} opened successfully".format(filename))
+                    break
+                except:
+                    pass
 
-            if selection == "..":
-                os.chdir(selection)
+                try:
+                    os.chdir(os.listdir()[int(selection)])
+                except:
+                    pass
 
-        name = os.path.splitext(filename)[0]
-        suffix = "_import"
-        newname = name + suffix
-        version = str(next(self._version(newname)))
-        columns = self.factor_names + self.output_labels
+                if selection == "..":
+                    os.chdir(selection)
+            return CSV,filename
 
-        setattr(self, newname + version, pd.DataFrame(update_DOEmatrix_datatypes_int64(
-            CSV.values, **self.factor_class_integers), columns=columns))
+        CSV,filename = openFile() # seeks and opens .CSV file as pandas.DataFrame. Current directory has been changed.
 
+        def fileVersion(newname):
+            version = str(next(self._version(newname)))
+            return version
+        def nameFile():
+            name = os.path.splitext(filename)[0]
+            suffix = "_import"
+            newname = name + suffix
+            return name,newname
+
+        name, newname = nameFile() # creates the new file_name for the imported file
+        version = fileVersion(newname) # versions the imported file.
+        os.chdir(old_directory) # resets the directory
+
+        def dataStructure(df_object):
+            col = df_object.columns
+
+            print("\n \n  --- file structuring --- ")
+            print("--- BASIC FILE STRUCTURE:  --- \n")
+            print("1ST ROW (cell A1): columns labels // COLUMN ORDER: inputs - outputs - analysis")
+            print("OTHER ROWS: column-specific values // COLUMN ORDER: inputs - outputs - analysis \n")
+            test_factor_count = int(input("How many test factor columns (or inputs) does the file have?"))
+            self.factor_count = test_factor_count
+            self.factor_names = list(col[:self.factor_count])
+
+            output_factor_count = int(input("How many result columns (or outputs) does the file have?"))
+            self.output_count = output_factor_count
+            self.output_labels = list(col[self.factor_count: self.factor_count + self.output_count])
+
+            analysis_column_count = len(col) - test_factor_count - output_factor_count
+            analysis_columns = list(col[self.factor_count + self.output_count:])
+
+            columns = self.factor_names + self.output_labels + analysis_columns
+            return columns
+
+        columns = dataStructure(CSV) # sets the structure for what is an input, an output and analysis data.
+
+        def datatableGeneration(name,version,data,column_labels):
+            setattr(self, name + version, pd.DataFrame(update_DOEmatrix_datatypes_int64(
+                data.values, **self.factor_class_integers), columns=column_labels))
+
+        datatableGeneration(newname,version,CSV,columns) # instances a variable in .self with the specified file_name and data.
         print(f"{name} was imported as self.{newname}{version}")
 
-        self.DOE_active_pointer = len(self.DOE_cache)  # sends the pointer to the top of the cache.
-        self.DOE_cache.append([version, newname + version, getattr(self, newname + version)])  # adds the import
-        self.DOE_active_pointer += 1  # updates the pointer
+        def datatableSelection():
+            self.DOE_active = getattr(self, newname + version)
+            self.DOE_active = self.DOE_active.astype({"cycles": int})
+            self.DOE_active = self.DOE_active.astype({"cycles": "float64"})
 
-        self.DOE_active = getattr(self, newname + version)
-        self.DOE_active = self.DOE_active.astype({"cycles": int})
-        self.DOE_active = self.DOE_active.astype({"cycles": "Int64"})
+        datatableSelection() # sets active DOE datatable as a copy of the instanced variable.
 
-        self.importFactorDF(newname,version)
+        def cacheUpdate():
+            self.DOE_active_pointer = len(self.DOE_cache)  # sends the pointer to the top of the cache.
+            self.DOE_active_pointer += 1  # updates the pointer.
+            self.DOE_cache.append([version, newname + version, getattr(self, newname + version)])  # adds the import
+
+        cacheUpdate() # puts a copy of the newly instanced variable into a cache for future calls.
+
+        factor_DF_filename = "factor_DF_" + filename
+        def factorInfoGeneration():
+            columnIndex = self.factor_count
+            columnLabels = self.dataset().columns[:columnIndex]
+            rowLabels = ["min", "max", "value"]
+
+            # structure: [[min1,max1,0],[min2,max2,0],...]
+            values = [[min(self.dataset().iloc[:, index]), max(self.dataset().iloc[:, index]), 0] for index in
+                      range(columnIndex)]
+
+            # structure: [[min1,min2,...],[max1,max2,...],[0,0,0...]]
+            values_T = zip(*values)
+
+            dataframe = pd.DataFrame(values_T, index=rowLabels, columns=columnLabels)
+
+            setattr(self, factor_DF_filename, dataframe)
+
+        factorInfoGeneration() # creates the factor_DF dataframe file and makes it an instance in .self
+
+        def factorDFSelection(file_name):
+            self.factor_DF = getattr(self, file_name)
+
+        factorDFSelection(factor_DF_filename) # sets self.factor_DF = dataframe
+
+        def factorDFCacheUpdate():
+            factor_DF_version = fileVersion(factor_DF_filename)  # versions the factor_DF
+            self.factor_DF_cache.append([factor_DF_version, factor_DF_filename, self.factor_DF])
+
+        factorDFCacheUpdate()
+
 
     # Pointer-guided information retrieval functions -------------------------------------------------------------------
     def dataset(self):  # returns what the active pointer is looking at
@@ -851,7 +936,7 @@ class DataBall:
             self.DOE_active = self.DOE_active.astype({"cycles": "Int64"})
             self.DOE_active_pointer = change_int
 
-            self.factor_DF = self.factor_DF_cache[change_int -1][2] #factor_df cache has the matrix in index 2.
+            self.factor_DF = self.factor_DF_cache[change_int - 1][2]  # factor_df cache has the matrix in index 2.
 
         except IndexError:
             print("That index is out of bounds")
@@ -912,9 +997,9 @@ class DataBall:
 
         return final_df
 
-    def data_topvalues(self, n, object=False):
+    def data_topvalues(self, n,column_selection,sort_ascending=False, object=False):
 
-        data = self.data_sort(sort_ascending=False)
+        data = self.data_sort(column_selection,sort_ascending=sort_ascending)
 
         if self._TEMP_DATA == True:
             self.DOE_active = self.DOE_active.iloc[:n, :]
@@ -959,16 +1044,15 @@ class DataBall:
 
         self._TEMP_DATA = pointer_state
 
-    def data_sort(self, sort_ascending=True, object=False, **kwargs):
+    def data_sort(self, column_selection: str, sort_ascending=True, object=False):
 
         try:
-            self.output_active_pointer = kwargs["select"]
+            self.output_active_pointer = self.dataset().columns.get_loc(column_selection)
         except:
             pass
 
         if self._LAZY_OUTPUT_SELECTION:
-            selection = self.DOE_active.shape[1] - self.output_active_pointer - 1
-
+            selection = self.output_active_pointer
 
         else:
             for i in range(len(self.output_labels)):
@@ -987,7 +1071,7 @@ class DataBall:
                 return self.DOE_active
 
         elif self._TEMP_DATA == False or object == True:
-            return self.DOE_active.sort_values(self.output_labels[selection], axis=0, ascending=sort_ascending)
+            return self.DOE_active.sort_values(self.DOE_active.columns[selection], axis=0, ascending=sort_ascending)
 
     # data plotting functions -----------------------------------------------------
     def plot(self):
@@ -1012,8 +1096,22 @@ class DataBall:
 
         plt.show()
 
-    def plot_byfactor(self):
+    def plot_byfactor(self, *regression_data):
+
         data = self.dataset()
+        try:
+            best_variables = regression_data[0]
+            coefficient_vector = regression_data[1]
+            coefficient_vector2 = coefficient_vector.reshape(1, len(coefficient_vector))  # weird bug?
+            averages = [0] + [np.average(data[factor]) for factor in best_variables]
+            d = [coefficient_vector2.flatten(), averages]
+
+            coef_DF = pd.DataFrame(d, columns=["identity"] + best_variables)
+
+            _temp_DF = coef_DF
+
+        except:
+            print("regression table not made")
 
         counter = 0
 
@@ -1030,9 +1128,74 @@ class DataBall:
                 x_axis = DOE_matrix.iloc[:, counter].values
                 axs[row, column].scatter(x_axis, y_axis)
                 axs[row, column].set_title(self.factor_names[counter])
+                factor = self.factor_names[counter]
+                try:
+                    if factor in coef_DF:
+                        # plots x_axis against x_axis * slope + intercept + average response of other factors
+
+                        _temp_DF = coef_DF.drop(columns=[factor, "identity"])
+
+                        _avg = (_temp_DF.loc[0] * _temp_DF.loc[1]).sum()  # Sum of average results of all other factors
+
+                        y_pred = x_axis * coef_DF.loc[0, factor] + coef_DF.loc[0, "identity"] + _avg
+
+                        axs[row, column].plot(x_axis, y_pred, color="0")
+                        _temp_DF = coef_DF
+                except:
+                    pass
                 counter += 1
+        plt.show()
+
+    def plot_distributions(self, column):
+
+        data = self.dataset()
+
+        if self._LAZY_OUTPUT_SELECTION:
+            selection = self.output_active_pointer
+        else:
+            selection = data.columns.get_loc(column)
+
+        cumulative_frequency = [(row - 0.5) / len(data) for row in range(data.shape[0])]
+        normal_frequency = [st.norm.ppf(p) for p in cumulative_frequency]
+
+        fg, axs = plt.subplots(nrows=1, ncols=4, figsize=(11, 3.5), layout="constrained")
+
+        axs[0].scatter(data.iloc[:,selection].values, normal_frequency)
+        axs[0].set_title("Normal Probability plot")
+        axs[0].set_xlabel(column)
+        axs[0].set_ylabel("Z-score")
+
+        axs[1].hist(data.iloc[:,selection].values)
+        axs[1].set_title("Data distribution")
+        axs[1].set_xlabel(column)
+        axs[1].set_ylabel("counts")
+        axs[1].axvline(x=0,color="red",linewidth="1",linestyle="dashed")
+
+        def skip_row(n):
+            try:
+                return data.loc[n][column]
+            except:
+                print("skipping over removed rows")
+                pass
+
+        factor_by_original_row_index = [skip_row(i) for i in range(data.shape[0])]
+
+        row_index = [i for i in range(data.shape[0])]
+        axs[2].scatter(row_index,factor_by_original_row_index)
+        axs[2].set_title("{} by Row".format(column))
+        axs[2].set_xlabel("Row nr.")
+        axs[2].set_ylabel(column)
+        axs[2].axhline(y=0,color="red",linewidth="1",linestyle="dashed")
+
+        axs[3].scatter(data[column], data["y_predicted"])
+        axs[3].set_title("y_predicted by {}".format(column))
+        axs[3].set_xlabel(column)
+        axs[3].set_ylabel("y_predicted")
+        axs[3].axvline(x=0,color="red",linewidth="1",linestyle="dashed")
 
         plt.show()
+
+        pass
 
 
 ## script execution ----------------------------------
