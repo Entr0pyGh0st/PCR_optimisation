@@ -22,16 +22,13 @@ instance.importFromDirectory() doesn't revert back to original directory, thus r
 
 instance.importFromDirectory() forces deletion of temp data generated under ANALYTICS_mode()
 
-instance.importFromDirectory() breaks when importing data with Average Rankings column appended. 
-
 instance.DOE_current_design() will override temp file work enabled by instance.ANALYTICS_mode()
 
 # Future features:
+
 let Data Visualisation functions use external data.
 
 statistical testing for interactions
-
-stepwise minimisation of BIC and AIC(c) of models.
 
 more designs: Fractional, PB, BB
 
@@ -63,8 +60,11 @@ Data Importing - Using a saved dataset:
 instance = DataBall()
 instance.importFromDirectory()
 ~~~ input request: # select folder and FILE.csv through interactive menu.
+~~~ input request: # Designate the number of input columns in the dataset (test factors).
+~~~ input request: # Designate the number of output columns in teh dataset (results columns).
 
-# creates a DataBall variable named: self.FILE_import<version> of type pd.DataFrame
+# creates a DataBall variable named: self.FILE_import<version> of type pd.DataFrame, and puts it into a cache.
+# creates a self.factor_DF file containing the information of the factors imported, and put its into a cache.
 ```
 
 Data selection (IMPORTANT)
@@ -89,7 +89,11 @@ instance.dataset_reset() # resets heightened states and work done under them. Br
 Data visualisation:
 ```python
 instance.plot() # 4 scatterplots, 1 per PCR result type. (y = PCR result // x = test run nr.)
-instance.plot_byfactor() # 12 scatterplots, 1 per factor. (y = PCR result // x = factor values) ## ONLY PLOTS DNA YIELD CURRENTLY.
+instance.plot_byfactor(x_factors,regression_coefficients) # 12 scatterplots, 1 per factor. (y = PCR result // x = factor values) ## ONLY PLOTS DNA YIELD CURRENTLY.
+# regression coefficients can be generated through the ANOVA class.
+instance.plot_distribution(factor): 4 scatterplots: Normal Probability plot, Histogram, residuals by row, residuals by predicted. 
+
+
 ```
 
 Data Handling:
@@ -99,14 +103,28 @@ instance.data_sort(sort_ascending=True,object=False) # sorts data on the selecte
 instance.data_average_ranking() # returns the average rank of each run across all 4 outputs as an appended column.
 ```
 
+Data testing:
+```python
+ANOVA(DataBall_object,x:list,y:str): Generates an instance of ANOVA with the current version of the data from DataBall.dataset() and the factors meant for testing. x is a list with the input variable names. y is the output data, for example "DNA yield (ng/uL)".
+  ANOVA_test() - useable when 1 x is passed (e.g. ["topprimer_vol"]. Generates a standard ANOVA results table.
+  MANOVA_test() - useable when 2+ x are passed (e.g. ["topprimer_vol","dNTP_vol"]. Generates ANOVA results table.
+
+  ANOVA.coefficient_matix() - generates a list of multiple linear regression factors (e.g. [b0,b1,b2,b3,b4...], where b0 is the intercept and b1... are the slopes of the respective factors).
+
+  ~~ ANOVA() has all the underlying features necessary for the calculations of sum of squares, degrees of freedom, F_tests and R^2 calculations applicable to the regression models, error and total segments of the data, for both simple or muliple (via matrix multiplication). 
+
+REGRESSION(DataBall,[x_list],y:str): Lets the user call for the estimation of linear regression factors, calculate AIC and BIC scores and apply stepwise minimisation of model paramerization (with AIC only)
+
+MODEL_ANALYSIS(ANOVA_object): Lets the user create Y_predicted columns, residuals and standardized residuals for plotting. Must take an ANOVA object.
+  MODEL_ANALYSIS.RUN(): adds Y_predicted and residuals for the list of factors passed to the ANOVA object.
+  MODEL_ANALYSIS.std_resid(): adds standardized residuals.  
+
 State priming:
 ```python
 instance.ANALYTICS_mode()
 # heightened state for working and visualising data. calling it will turn it ON or OFF. default = "OFF" 
-# if OFF (default), ALL Data Handling functions WILL RETURN AN OBJECT BY DEFAULT. the underlying dataset will not be modified.
-# if ON, ALL Data Calling, Data Handling, Data visualisation and Data Saving functions will now be applicable to an inplace copy of the underlying dataset. This means that all Data Handling functions now behave as object=False.
-# However, you can still pass object=True when ANALYTICS_mode = ON to assign a variable to any modification done to the working copy of the dataset.
-```
+# if OFF (default), all internal DataBall functions and other classes that request DataBall, will be editing the cache file directly.
+# if ON, a temporary copy of the cache file is provided to the internal functions of DataBall and any other Class that requests it. All classes that request DataBall will edit this copy and a local copy of it simultaneously. 
 
 
 
