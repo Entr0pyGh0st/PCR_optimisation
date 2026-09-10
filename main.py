@@ -235,7 +235,7 @@ def update_DOEmatrix_datatypes_int64(DOE_matrix, **kwargs):
     :param kwargs: {factor_name:column_index}
     :return: updated DOE_matrix
     """
-    print("Imported file shape: ",DOE_matrix.shape)
+    print("Imported file shape: ", DOE_matrix.shape)
 
     for keys in kwargs:
         for rows in DOE_matrix:
@@ -516,6 +516,7 @@ class ANOVA:
                 continue
         return pd.DataFrame(data, index=rows, columns=header)
 
+
 class MODEL_ANALYSIS():
     def __init__(self, ANOVA_object):
         self.rc = ANOVA_object.coefficient_matrix()
@@ -574,6 +575,23 @@ class MODEL_ANALYSIS():
         self.resid()
         # self.std_resid()
 
+def plot_stacking(function):
+    """
+     Allows a given plotting function to overlay other data. data is passed in via dataset=<DataBall.dataset()>
+     the function must have **kwargs.
+     code that sets the working dataset must be wrapped into accepting data from kwargs["dataset"]
+     the overall plot function must return fg and ax.
+
+     :param function:
+     :return:
+     """
+    def wrapper(self,*args, **kwargs):
+        fg, ax = function(self, *args)
+        for i in kwargs["add"]:
+            fg, ax = function(self, *args, fg=fg, ax=ax, dataset=i)
+        plt.show()
+    return wrapper
+
 
 class DataBall:
     """
@@ -620,6 +638,8 @@ class DataBall:
 
         self._LOCAL_STORAGE = {}  # cache for names and versions of imported DOEs / Structure {"name":str : version:int}
 
+    # Decorators ------------------------------------------
+
     # Saving and Importing functions -------------------------------------------------------------------
     def _folder(self):
         year, month, day, *_ = time.localtime()
@@ -632,7 +652,6 @@ class DataBall:
 
     def _filename(self):
         return self.DOE_cache[self.DOE_active_pointer - 1][1] + ".csv"
-
 
     def exportToDirectory(self):
         old_dir = os.getcwd()
@@ -687,22 +706,23 @@ class DataBall:
 
                 if selection == "..":
                     os.chdir(selection)
-            return CSV,filename
+            return CSV, filename
 
-        CSV,filename = openFile() # seeks and opens .CSV file as pandas.DataFrame. Current directory has been changed.
+        CSV, filename = openFile()  # seeks and opens .CSV file as pandas.DataFrame. Current directory has been changed.
 
         def fileVersion(newname):
             version = str(next(self._version(newname)))
             return version
+
         def nameFile():
             name = os.path.splitext(filename)[0]
             suffix = "_import"
             newname = name + suffix
-            return name,newname
+            return name, newname
 
-        name, newname = nameFile() # creates the new file_name for the imported file
-        version = fileVersion(newname) # versions the imported file.
-        os.chdir(old_directory) # resets the directory
+        name, newname = nameFile()  # creates the new file_name for the imported file
+        version = fileVersion(newname)  # versions the imported file.
+        os.chdir(old_directory)  # resets the directory
 
         def dataStructure(df_object):
             col = df_object.columns
@@ -725,13 +745,14 @@ class DataBall:
             columns = self.factor_names + self.output_labels + analysis_columns
             return columns
 
-        columns = dataStructure(CSV) # sets the structure for what is an input, an output and analysis data.
+        columns = dataStructure(CSV)  # sets the structure for what is an input, an output and analysis data.
 
-        def datatableGeneration(name,version,data,column_labels):
+        def datatableGeneration(name, version, data, column_labels):
             setattr(self, name + version, pd.DataFrame(update_DOEmatrix_datatypes_int64(
                 data.values, **self.factor_class_integers), columns=column_labels))
 
-        datatableGeneration(newname,version,CSV,columns) # instances a variable in .self with the specified file_name and data.
+        datatableGeneration(newname, version, CSV,
+                            columns)  # instances a variable in .self with the specified file_name and data.
         print(f"{name} was imported as self.{newname}{version}")
 
         def datatableSelection():
@@ -739,16 +760,17 @@ class DataBall:
             self.DOE_active = self.DOE_active.astype({"cycles": int})
             self.DOE_active = self.DOE_active.astype({"cycles": "float64"})
 
-        datatableSelection() # sets active DOE datatable as a copy of the instanced variable.
+        datatableSelection()  # sets active DOE datatable as a copy of the instanced variable.
 
         def cacheUpdate():
             self.DOE_active_pointer = len(self.DOE_cache)  # sends the pointer to the top of the cache.
             self.DOE_active_pointer += 1  # updates the pointer.
             self.DOE_cache.append([version, newname + version, getattr(self, newname + version)])  # adds the import
 
-        cacheUpdate() # puts a copy of the newly instanced variable into a cache for future calls.
+        cacheUpdate()  # puts a copy of the newly instanced variable into a cache for future calls.
 
         factor_DF_filename = "factor_DF_" + filename
+
         def factorInfoGeneration():
             columnIndex = self.factor_count
             columnLabels = self.dataset().columns[:columnIndex]
@@ -765,19 +787,18 @@ class DataBall:
 
             setattr(self, factor_DF_filename, dataframe)
 
-        factorInfoGeneration() # creates the factor_DF dataframe file and makes it an instance in .self
+        factorInfoGeneration()  # creates the factor_DF dataframe file and makes it an instance in .self
 
         def factorDFSelection(file_name):
             self.factor_DF = getattr(self, file_name)
 
-        factorDFSelection(factor_DF_filename) # sets self.factor_DF = dataframe
+        factorDFSelection(factor_DF_filename)  # sets self.factor_DF = dataframe
 
         def factorDFCacheUpdate():
             factor_DF_version = fileVersion(factor_DF_filename)  # versions the factor_DF
             self.factor_DF_cache.append([factor_DF_version, factor_DF_filename, self.factor_DF])
 
         factorDFCacheUpdate()
-
 
     # Pointer-guided information retrieval functions -------------------------------------------------------------------
     def dataset(self):  # returns what the active pointer is looking at
@@ -997,9 +1018,9 @@ class DataBall:
 
         return final_df
 
-    def data_topvalues(self, n,column_selection,sort_ascending=False, object=False):
+    def data_topvalues(self, n, column_selection, sort_ascending=False, object=False):
 
-        data = self.data_sort(column_selection,sort_ascending=sort_ascending)
+        data = self.data_sort(column_selection, sort_ascending=sort_ascending)
 
         if self._TEMP_DATA == True:
             self.DOE_active = self.DOE_active.iloc[:n, :]
@@ -1074,11 +1095,20 @@ class DataBall:
             return self.DOE_active.sort_values(self.DOE_active.columns[selection], axis=0, ascending=sort_ascending)
 
     # data plotting functions -----------------------------------------------------
-    def plot(self):
+    @plot_stacking
+    def plot_byoutput(self,**kwargs):
 
-        data = self.dataset_results()
-        fg, axs = plt.subplots(nrows=2, ncols=2, figsize=(5.5, 3.5), layout="constrained")
-        x_axis = [str(i) for i in range(data.count()[self.output_labels[0]])]
+        try:
+            data = kwargs["dataset"]
+        except:
+            data = self.dataset()
+
+        try:
+            fg, axs = [kwargs["fg"], kwargs["ax"]]
+        except:
+            fg, axs = plt.subplots(nrows=2, ncols=2, figsize=(5.5, 3.5), layout="constrained")
+
+        x_axis = [str(i) for i in range(data.shape[0])]
 
         # self.data() returns the most recent a.RUN() results (DataFrame object)
         # self.data().count() returns a list with the count of non-NaN values in each column
@@ -1094,7 +1124,7 @@ class DataBall:
             axs[plot[0]].scatter(x_axis, data[plot[1]], marker=".")
             axs[plot[0]].set_title(plot[1])
 
-        plt.show()
+        return fg, axs
 
     def plot_byfactor(self, *regression_data):
 
@@ -1146,9 +1176,24 @@ class DataBall:
                 counter += 1
         plt.show()
 
-    def plot_distributions(self, column):
+    @plot_stacking
+    def plot_distributions(self, column, **kwargs):
+        """
+        Allows a given plotting function to overlay other data. data is passed in via dataset=<DataBall.dataset()>
+        the function must have **kwargs.
+        code that sets the working dataset must be wrapped into accepting data from kwargs["dataset"]
+        the overall plot function must return fg and ax.
 
-        data = self.dataset()
+        :param function:
+        :return:
+        """
+        try:
+            data = kwargs["dataset"]
+            print("imported new dataset")
+            print(data)
+        except:
+            data = self.dataset()
+            print("using current dataset")
 
         if self._LAZY_OUTPUT_SELECTION:
             selection = self.output_active_pointer
@@ -1158,18 +1203,21 @@ class DataBall:
         cumulative_frequency = [(row - 0.5) / len(data) for row in range(data.shape[0])]
         normal_frequency = [st.norm.ppf(p) for p in cumulative_frequency]
 
-        fg, axs = plt.subplots(nrows=1, ncols=4, figsize=(11, 3.5), layout="constrained")
+        try:
+            fg, axs = [kwargs["fg"], kwargs["ax"]]
+        except:
+            fg, axs = plt.subplots(nrows=1, ncols=4, figsize=(11, 3.5), layout="constrained")
 
-        axs[0].scatter(data.iloc[:,selection].values, normal_frequency)
+        axs[0].scatter(data.iloc[:, selection].values, normal_frequency)
         axs[0].set_title("Normal Probability plot")
         axs[0].set_xlabel(column)
         axs[0].set_ylabel("Z-score")
 
-        axs[1].hist(data.iloc[:,selection].values)
+        axs[1].hist(data.iloc[:, selection].values)
         axs[1].set_title("Data distribution")
         axs[1].set_xlabel(column)
         axs[1].set_ylabel("counts")
-        axs[1].axvline(x=0,color="red",linewidth="1",linestyle="dashed")
+        axs[1].axvline(x=0, color="red", linewidth="1", linestyle="dashed")
 
         def skip_row(n):
             try:
@@ -1181,22 +1229,134 @@ class DataBall:
         factor_by_original_row_index = [skip_row(i) for i in range(data.shape[0])]
 
         row_index = [i for i in range(data.shape[0])]
-        axs[2].scatter(row_index,factor_by_original_row_index)
+        axs[2].scatter(row_index, factor_by_original_row_index)
         axs[2].set_title("{} by Row".format(column))
         axs[2].set_xlabel("Row nr.")
         axs[2].set_ylabel(column)
-        axs[2].axhline(y=0,color="red",linewidth="1",linestyle="dashed")
+        axs[2].axhline(y=0, color="red", linewidth="1", linestyle="dashed")
 
         axs[3].scatter(data[column], data["y_predicted"])
         axs[3].set_title("y_predicted by {}".format(column))
         axs[3].set_xlabel(column)
         axs[3].set_ylabel("y_predicted")
-        axs[3].axvline(x=0,color="red",linewidth="1",linestyle="dashed")
+        axs[3].axvline(x=0, color="red", linewidth="1", linestyle="dashed")
 
+        return fg, axs
+
+    @plot_stacking
+    def plot_withingroups(self, statistic=0,**kwargs):
+        """
+        Plots a statistic (e.g.0 for average,1 for std. dev) for each treatment level of a given test factor (i.e. a DOE mean, or DOE std.dev plot)
+        :param statistic: "average", "std. dev."
+        :return:
+        """
+        if statistic == 0:
+            stat = np.average
+        elif statistic == 1:
+            stat = np.std
+
+        try:
+            dataset = kwargs["dataset"]
+        except:
+            dataset = self.dataset()
+
+        factors = dataset.columns[:self.factor_count]
+        treatments = dataset.iloc[:, :self.factor_count]
+        results = "DNA yield (ng/uL)"
+
+        # treatment_levels = [treatments.value_counts(factor).shape[0] for factor in factors]
+        # level_counts = [treatments.value_counts(factor).values for factor in factors]
+
+        # generator keys are factors. for each key, there is a list of length 2. index 0 is the nr. of treatments. index 1 is the nr of rows in each treatment
+        generator = {factor: [treatments.value_counts(factor).shape[0], treatments.value_counts(factor).values] for
+                     factor in factors}
+
+        def average_by_level(generator):
+            averages = {}
+
+            for factor in generator.keys():
+
+                dataset.sort_values(factor, axis=0, ascending=True, inplace=True)
+                factor_avg = []
+                start_index = 0
+
+                for treatment in range(generator[factor][
+                                           0]):  # treatments is an integer, generator[factor][0] is how many treatments there are.
+
+                    subset_rows = generator[factor][1][treatment]
+
+                    value = stat(dataset[results][start_index:start_index + subset_rows])  # average of subset of rows.
+                    factor_avg.append(value)
+                    start_index += subset_rows  # shifts the start point of the rows.
+
+                averages[factor] = factor_avg
+
+            return averages
+
+        factor_averages = average_by_level(generator)  # {factor1: [50], factor2: [23,45] ....}
+
+        try:
+            fg, ax = [kwargs["fg"],kwargs["ax"]]
+        except:
+            fg, ax = plt.subplots(figsize=(7, 4.5), layout="constrained")
+
+        def bars_by_group(averages):
+            position = 0.5
+            for key in averages:
+                increment_value = 1 / (1 + len(averages[key]))
+                x_coordinates = [[position + i * increment_value] for i in range(1, 1 + len(averages[key]))]
+
+                ax.plot(x_coordinates, averages[key], mec="k", marker="x")
+
+                position += 1.5
+
+        bars_by_group(factor_averages)
+        x = [1 + 1.5 * i for i in range(len(factors))]
+        ax.set_xticks(x, labels=factors, rotation=90, rotation_mode="default")
+
+        ax.axhline(stat(dataset[results]), color="red", linewidth=1, linestyle="dashed")
+
+        if statistic == 0:
+            ax.set_title("DOE plot - Average per treatment level ({})".format(results))
+            ax.set_ylabel("Average")
+        elif statistic == 1:
+            ax.set_title("DOE plot - Standard deviation per treatment level ({})".format(results))
+            ax.set_ylabel("standard deviation")
+
+        for i in x:
+            ax.axvline(i, color="gray", linewidth=0.1)
+
+        return fg,ax
+
+
+# Decorators ---------------------------------------------------
+
+
+"""
+def plot_stacking(function):
+    def wrapper(*args,**kwargs):
+        fg,ax = function(*args)
+        for i in kwargs["add"]:
+            fg,ax = function(i[0],i[1],fg=fg,ax=ax)
         plt.show()
+    return wrapper
 
-        pass
+@plot_stacking
+def test_plot(a,b,**kwargs):
+    x = np.linspace(1,a,num=10)
+    y = np.geomspace(1,b,num=10)
+    try:
+        fg, ax = [kwargs["fg"],kwargs["ax"]]
+    except:
+        fg, ax = plt.subplots()
+        
+    ax.scatter(x,y)
+        
+    return fg, ax
 
+test_plot(4,400,add=[[2,50],[4,100]])
+
+"""
 
 ## script execution ----------------------------------
 
