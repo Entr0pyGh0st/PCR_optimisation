@@ -118,6 +118,7 @@ REGRESSION(DataBall,[x_list],y:str): Lets the user call for the estimation of li
 MODEL_ANALYSIS(ANOVA_object): Lets the user create Y_predicted columns, residuals and standardized residuals for plotting. Must take an ANOVA object.
   MODEL_ANALYSIS.RUN(): adds Y_predicted and residuals for the list of factors passed to the ANOVA object.
   MODEL_ANALYSIS.std_resid(): adds standardized residuals.  
+```
 
 State priming:
 ```python
