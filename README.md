@@ -24,15 +24,13 @@ instance.importFromDirectory() forces deletion of temp data generated under ANAL
 
 instance.DOE_current_design() will override temp file work enabled by instance.ANALYTICS_mode()
 
+the "cycles" needs to be an Int64 for .RUN() but a float64 for other functions. In some instances changing the dtypes back to Int64 works but after regular use in other functions it stops working. 
+
 # Future features:
 
-let Data Visualisation functions use external data.
+more designs:  PB, BB
 
-statistical testing for interactions
-
-more designs: Fractional, PB, BB
-
-more plots: DOE mean, stdev, scatter and interaction plots ,residual by row, residual by predicted, Q-Q
+more plots: interaction plots , Q-Q
 
 
 # How to use:
