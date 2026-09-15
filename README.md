@@ -18,13 +18,9 @@ This repo seeks to interface his model with pyDOE, a python module for experimen
 
 
 # Bugs:
-instance.importFromDirectory() doesn't revert back to original directory, thus recursively saving files.
-
-instance.importFromDirectory() forces deletion of temp data generated under ANALYTICS_mode()
 
 instance.DOE_current_design() will override temp file work enabled by instance.ANALYTICS_mode()
 
-the "cycles" needs to be an Int64 for .RUN() but a float64 for other functions. In some instances changing the dtypes back to Int64 works but after regular use in other functions it stops working. 
 
 # Future features:
 
