@@ -1,20 +1,22 @@
-import string
+
 from urllib.request import urlopen, Request
 
+import csv
 import dmba
-from bs4 import BeautifulSoup
+import functools
+import itertools
+import matplotlib.pyplot as plt
+import numpy as np
+import os
 import pandas as pd
 import pyDOE
-import numpy as np
-import csv
-import time
-import os
-import itertools
 import scipy.stats as st
-
+import string
+import time
+from bs4 import BeautifulSoup
 from pcrmachine import pcrparam
 from pcrmachine import pcrsim
-import matplotlib.pyplot as plt
+from scipy.special._ufuncs import binom
 
 
 # -----
@@ -203,13 +205,17 @@ def sobol(data_package, return_design=True, **kwargs):
             DOE_design[row_nr, factor_nr] = data_package[0].iloc[factor_nr] + (
                     data_package[1].iloc[factor_nr] - data_package[0].iloc[factor_nr]) * DOE_design[
                                                 row_nr, factor_nr]
+
+
+    DOE_design[:,0] = np.round(DOE_design[:,0])
+
     if not return_design:
         return DOE_design
     else:
         return DOE_design, DOE_design2
 
 
-def ff2n(data_package, return_design=True, **kwargs):
+def fullFactorial2lvl(data_package, return_design=True, **kwargs):
     DOE_design = pyDOE.ff2n(data_package[0])
     DOE_design2 = pyDOE.ff2n(data_package[0])
 
@@ -223,37 +229,104 @@ def ff2n(data_package, return_design=True, **kwargs):
         return DOE_design, DOE_design2
 
 
-def update_DOEmatrix_datatypes_int64(DOE_matrix, **kwargs):
+def Column_to_Int64(DOE_matrix,col_list):
     """
-    takes the DOE_matrix in np.array64, takes a {factor_name:column_index} dictionary, and changes
-    the DOE_matrix[:column_index] to data_type ("int","np.int32","np.int64")
-
-        ## NUMPY DOESNT ALLOW DIFFERENT COLUMN FORMATS. HOW DID THIS EVEN WORK BEFORE? ##
+    takes the DOE_matrix in pd.Dataframe, takes a list of columns, and changes
+    the said columns in DOE_matrix to data_type "np.int64"
 
     :param DOE_matrix: updated DOE design
-    :param data_type:"int" OR "np.int32" OR "np.int64"
-    :param kwargs: {factor_name:column_index}
     :return: updated DOE_matrix
     """
-    print("Imported file shape: ", DOE_matrix.shape)
 
-    for keys in kwargs:
-        for rows in DOE_matrix:
-            rows[kwargs[keys]].astype(np.int64)
+    for columns in col_list:
+        DOE_matrix[columns] = DOE_matrix[columns].astype("Int64")
     return DOE_matrix
 
 
-def fractionalFactorial(data_package):  # factors, resolution, min, max
-    design1 = pyDOE.fracfact_by_res(data_package[0], data_package[1])
-    design2 = pyDOE.fracfact_by_res(data_package[0], data_package[1])
+def fractionalFactorial2lvl(data_package):  # factors, resolution, min, max
+    def ff_gen_string(n_factors, design_resolution):
+        def minimum_resolution_design(minimum_n, resolution):
+            """
+            Returns the number of factors that may be tested with the minimum amount of main factors at a given resolution.
+
+            sum over (k of Combination(N,k)) + N
+            N = nr. of factors
+            k = [res - 1, N - 1]
+
+            eg.: for 4 factors at resolution 3, how big of a design can I generate?
+            combination(4,2) -> (1,2) (1,3) (1,4) (2,3) (2,4) (3,4) # 6
+            combination(4,3) -> (1,2,3) (1,2,4) (1,3,4) (2,3,4) # 4
+
+            total factors = 10 + 4 = 14
+
+            In other words, the DOE design can have 14 total factors, 4 of which are unaliased and 10 which are aliased
+
+            :param n: base number of factors
+            :param resolution: resolution for said factors
+            :return:  how many factors can be tested if we have n base factors at resolution res.
+            """
+
+            # (res - 1) because a given factor will be aliased with another 2 factors at Res III, another 3 factors at res IV...
+            maximum_n = sum(binom(minimum_n, r) for r in range(resolution - 1, minimum_n)) + minimum_n
+
+            return maximum_n
+
+        # step 1 - find the minimum_n at a given resolution that allows testing of up to maximum_n factors.
+        min_factors = next(itertools.dropwhile(lambda _n: minimum_resolution_design(_n, design_resolution) < n_factors, range(design_resolution - 1, n_factors)))
+
+        print(
+            f"{min_factors} factors will be used unaliased."
+            f"{n_factors - min_factors} factor(s) will used as an alias of the prior {min_factors} factors")
+
+        # step 2 - create the generator string
+        main_factors = list(string.ascii_lowercase[:min_factors])
+        all_combinations = ("".join(combination) for pairs in range(design_resolution - 1, len(main_factors)) for combination in
+                            itertools.combinations(main_factors, pairs))
+        viable_interactions = list(itertools.islice(all_combinations, n_factors - len(main_factors)))
+
+        gen_string = " ".join(main_factors + viable_interactions)
+        return gen_string
+
+    def ff_plot(n, res):
+
+        all_factors = ff_gen_string(n, res).split(" ")
+
+        # distinguishes main factors from interactions via their position in a string.
+        main_factors_index = list(itertools.takewhile(lambda x: len(all_factors[x]) == 1, range(len(all_factors))))
+        interactions_index = list(itertools.dropwhile(lambda x: len(all_factors[x]) > 1, range(len(all_factors))))
+
+        # generates a list of all 2+factor interactions.
+        interactions = all_factors[len(main_factors_index):len(main_factors_index) + len(interactions_index)]
+
+        # unpacks 2+factor interactions into lists of their individual factors, a list of lists.
+        interactions_unpack = [list(interaction) for interaction in interactions]
+
+        # converts each factor in a 2+factor interactions into ordinal numbering, subtracting 97 to make "a" = 0, "b" = 1 ...
+        interactions_unpack_index = [[ord(factor.lower()) - 97 for factor in interaction] for interaction in
+                                     interactions_unpack]
+
+        # generates a starting DOE design using only main factors, in the shape of a list of lists.
+        main_DESIGN = list(itertools.product([-1, 1], repeat=len(main_factors_index)))
+        main_DESIGN = list(list(row) for row in main_DESIGN)  # convert from list of tuples to list of list.
+
+        # generates a new row with reduce, with reduce only applying to the given indices passed in each interaction.
+        for row_nr in range(len(main_DESIGN)):
+            for interaction in interactions_unpack_index:
+                new_row = functools.reduce(lambda x, y: x * y, [main_DESIGN[row_nr][factor] for factor in interaction])
+                main_DESIGN[row_nr] += [new_row]
+
+        return np.array(main_DESIGN)
+
+    main_design = ff_plot(data_package[0], data_package[1])
+    blank_design = ff_plot(data_package[0], data_package[1])
 
     for factor_nr in range(data_package[0]):
-        for row_nr in range(len(design1)):
-            design1[row_nr, factor_nr] = data_package[2].iloc[factor_nr] + (
+        for row_nr in range(len(main_design)):
+            main_design[row_nr, factor_nr] = data_package[2].iloc[factor_nr] + (
                     data_package[3].iloc[factor_nr] - data_package[2].iloc[factor_nr]) * (
-                                                 design1[row_nr, factor_nr] + 1) / 2
+                                                 main_design[row_nr, factor_nr] + 1) / 2
 
-    return design1, design2
+    return main_design, blank_design
 
 
 class REGRESSION:
@@ -424,16 +497,33 @@ class ANOVA:
         slope = self.SSxy() / self.SS(self.factor_label)
         intercept = np.average(self.data.loc[:, self.result_name]) - slope * np.average(
             self.data.loc[:, self.factor_label])
-        return slope, intercept
+        print(f"Regression intercept: {intercept}")
+        print(f"Regression slope: {slope}")
 
-    def t_test(self, slope_coefficient, intercept_coefficient):
+        return intercept, slope
+
+    def t_test(self, slope_coefficient, intercept_coefficient ,alpha):
         t0_intercept = intercept_coefficient / np.sqrt(self.MSquare("error") * self.data.shape[0] + (
                 np.average(self.data.loc[:, self.factor_label]) / self.SS(self.factor_label)))
         t0_slope = slope_coefficient / np.sqrt(self.MSquare("error") / self.SS(self.factor_label))
 
-        intercept_p_value = 2 * np.e ** (-t0_intercept ** 2 / 2) / np.sqrt(2 * np.pi)
-        slope_p_value = 2 * np.e ** (-t0_slope ** 2 / 2) / np.sqrt(2 * np.pi)
+        intercept_area = 2 * np.e ** (-t0_intercept ** 2 / 2) / np.sqrt(2 * np.pi)
+        slope_area = 2 * np.e ** (-t0_slope ** 2 / 2) / np.sqrt(2 * np.pi)
 
+        intercept_p_value = 1 - intercept_area
+        slope_p_value = 1 - slope_area
+
+
+
+        header = ["Coefficient" ,"result" ,"p_value" ,"alpha" ,"significant"]
+        data =[["{} Slope".format(self.factor_label), slope_coefficient, slope_p_value, alpha,
+                 "Yes" if slope_p_value <= alpha else "No"]
+            , ["{} Intercept".format(self.factor_label), intercept_coefficient, intercept_p_value, alpha,
+               "Yes" if intercept_p_value <= alpha else "No"]]
+
+        t_test_DF = pd.DataFrame(data, columns=header)
+
+        print(t_test_DF)
         return intercept_p_value, slope_p_value
 
     # MULTIPLE LINEAR REGRESSION ---------------------------------------------------
@@ -575,6 +665,7 @@ class MODEL_ANALYSIS():
         self.resid()
         # self.std_resid()
 
+# Decorators ------------------------------------------
 def plot_stacking(function):
     """
      Allows a given plotting function to overlay other data. data is passed in via dataset=<DataBall.dataset()>
@@ -585,11 +676,13 @@ def plot_stacking(function):
      :param function:
      :return:
      """
-    def wrapper(self,*args, **kwargs):
+
+    def wrapper(self, *args, **kwargs):
         fg, ax = function(self, *args)
         for i in kwargs["add"]:
             fg, ax = function(self, *args, fg=fg, ax=ax, dataset=i)
         plt.show()
+
     return wrapper
 
 
@@ -618,7 +711,7 @@ class DataBall:
         self.factor_setvalues = HTMLDataExtractor(self.continuousFactors, "value")
         self.factor_datatype = HTMLDataExtractor(self.continuousFactors, "type")
         self.factor_polymerase = HTMLDataExtractor(self.continuousFactors, "value")
-        self.factor_class_integers = {"id_cycles": 0}
+        self.factor_class_integers = ["cycles"]
         self.datapackage = [self.factor_min, self.factor_max, self.factor_setvalues, self.factor_datatype]
 
         self.factor_DF = dataframe_generate(self.datapackage, self.factor_attributes, self.factor_names)
@@ -638,7 +731,7 @@ class DataBall:
 
         self._LOCAL_STORAGE = {}  # cache for names and versions of imported DOEs / Structure {"name":str : version:int}
 
-    # Decorators ------------------------------------------
+
 
     # Saving and Importing functions -------------------------------------------------------------------
     def _folder(self):
@@ -682,7 +775,7 @@ class DataBall:
         :return: [.csv file file_name, .csv data]
         """
 
-        old_directory = os.getcwd()
+
 
         def openFile():
             while True:
@@ -708,7 +801,6 @@ class DataBall:
                     os.chdir(selection)
             return CSV, filename
 
-        CSV, filename = openFile()  # seeks and opens .CSV file as pandas.DataFrame. Current directory has been changed.
 
         def fileVersion(newname):
             version = str(next(self._version(newname)))
@@ -719,10 +811,6 @@ class DataBall:
             suffix = "_import"
             newname = name + suffix
             return name, newname
-
-        name, newname = nameFile()  # creates the new file_name for the imported file
-        version = fileVersion(newname)  # versions the imported file.
-        os.chdir(old_directory)  # resets the directory
 
         def dataStructure(df_object):
             col = df_object.columns
@@ -742,42 +830,34 @@ class DataBall:
             analysis_column_count = len(col) - test_factor_count - output_factor_count
             analysis_columns = list(col[self.factor_count + self.output_count:])
 
-            columns = self.factor_names + self.output_labels + analysis_columns
-            return columns
 
-        columns = dataStructure(CSV)  # sets the structure for what is an input, an output and analysis data.
+        def datatableGeneration(name, version, data):
 
-        def datatableGeneration(name, version, data, column_labels):
-            setattr(self, name + version, pd.DataFrame(update_DOEmatrix_datatypes_int64(
-                data.values, **self.factor_class_integers), columns=column_labels))
+            transformed_data = Column_to_Int64(data, self.factor_class_integers)
+            setattr(self, name + version, transformed_data)
 
-        datatableGeneration(newname, version, CSV,
-                            columns)  # instances a variable in .self with the specified file_name and data.
-        print(f"{name} was imported as self.{newname}{version}")
 
         def datatableSelection():
             self.DOE_active = getattr(self, newname + version)
             self.DOE_active = self.DOE_active.astype({"cycles": int})
             self.DOE_active = self.DOE_active.astype({"cycles": "float64"})
 
-        datatableSelection()  # sets active DOE datatable as a copy of the instanced variable.
+        def datatableCacheUpdate(update_pointer=True):
+            if update_pointer:
+                self.DOE_active_pointer = len(self.DOE_cache)  # sends the pointer to the top of the cache.
+                self.DOE_active_pointer += 1  # updates the pointer.
 
-        def cacheUpdate():
-            self.DOE_active_pointer = len(self.DOE_cache)  # sends the pointer to the top of the cache.
-            self.DOE_active_pointer += 1  # updates the pointer.
             self.DOE_cache.append([version, newname + version, getattr(self, newname + version)])  # adds the import
 
-        cacheUpdate()  # puts a copy of the newly instanced variable into a cache for future calls.
-
-        factor_DF_filename = "factor_DF_" + filename
 
         def factorInfoGeneration():
-            columnIndex = self.factor_count
-            columnLabels = self.dataset().columns[:columnIndex]
+            columnIndex = self.factor_count # this is updated when calling dataStructure()
+            columnLabels = self.factor_names # this is updated when calling dataStructure()
+            data = getattr(self, newname + version)
             rowLabels = ["min", "max", "value"]
 
             # structure: [[min1,max1,0],[min2,max2,0],...]
-            values = [[min(self.dataset().iloc[:, index]), max(self.dataset().iloc[:, index]), 0] for index in
+            values = [[min(data.iloc[:, index]), max(data.iloc[:, index]), 0] for index in
                       range(columnIndex)]
 
             # structure: [[min1,min2,...],[max1,max2,...],[0,0,0...]]
@@ -787,37 +867,109 @@ class DataBall:
 
             setattr(self, factor_DF_filename, dataframe)
 
-        factorInfoGeneration()  # creates the factor_DF dataframe file and makes it an instance in .self
-
         def factorDFSelection(file_name):
             self.factor_DF = getattr(self, file_name)
 
-        factorDFSelection(factor_DF_filename)  # sets self.factor_DF = dataframe
-
         def factorDFCacheUpdate():
-            factor_DF_version = fileVersion(factor_DF_filename)  # versions the factor_DF
-            self.factor_DF_cache.append([factor_DF_version, factor_DF_filename, self.factor_DF])
+            factor_DF_version = fileVersion(factor_DF_filename + "_import")  # versions the factor_DF
+            self.factor_DF_cache.append([factor_DF_version, factor_DF_filename + "_import", getattr(self,factor_DF_filename)])
 
-        factorDFCacheUpdate()
+        # opens the file, collects the .csv data and filename.
+        old_directory = os.getcwd()
+        CSV, filename = openFile()
+
+        # takes filename, removes .csv, returns it as name, appends _import to name, returns it as newname.
+        # takes newname, gives it a version number based on what's been cached.
+        name, newname = nameFile()
+        version = fileVersion(newname)
+
+        # resets the directory
+        os.chdir(old_directory)
+
+        # function calls to assign the data structure and data properties of the csv data to DataBall.
+        dataStructure(CSV) # defines what are the inputs/test factors and outputs/result of the data.
+        datatableGeneration(newname, version, CSV)  # instances the data in DataBall as a .self object.
+        print(f"{name} was imported as self.{newname}{version}")
+        factor_DF_filename = "factor_DF_" + name
+
+
+        # Determines if the data (self.DOE_active) and the factor info(self.factor_DF) will overlay the current work.
+        # Regardless of the option, the internal caches will have the data for future access.
+
+        if self._TEMP_DATA == False:
+            datatableCacheUpdate() # puts DOE design in cache.
+            datatableSelection() # sets self.DOE_active to the imported design.
+            factorInfoGeneration()  # this needs the datatable to be made first.
+            factorDFSelection(factor_DF_filename) # sets self.factor_DF to the importer factor information.
+            factorDFCacheUpdate() # puts factor info (factor_DF) in cache.
+            return
+
+        set_active = input("Do you want the imported data to override your temporary work? (Y/N)")
+
+        if self._TEMP_DATA == True and set_active == "Y":
+            datatableCacheUpdate()  # puts DOE design in cache.
+            datatableSelection()  # sets self.DOE_active to the imported design.
+            factorInfoGeneration()  # this needs the datatable to be made first.
+            factorDFSelection(factor_DF_filename)  # sets self.factor_DF to the importer factor information.
+            factorDFCacheUpdate()  # puts factor info (factor_DF) in cache.
+            return
+
+        elif self._TEMP_DATA == True and set_active == "N":
+            datatableCacheUpdate(update_pointer=False)  # puts DOE design in cache, doesn't update the pointer.
+            factorInfoGeneration()  # this needs the datatable to be made first.
+            factorDFCacheUpdate()  # puts factor info (factor_DF) in cache.
+            return
 
     # Pointer-guided information retrieval functions -------------------------------------------------------------------
+    """
+    Reference guide for types of DOE matrices and how to access them:
+     - Blank DOE matrix  -- List, stored as a self-referenced attribute (e.g.self.fractionalFactorial1b) < b at the end
+     - Coded DOE matrix -- list, stored as a self-referenced attribute (e.g. self.fractionalFactorial1) < no b 
+     - Coded DOE matrix -- pd.DataFrame, in self.DOE_cache.
+     - Coded DOE matrix -- pd.DataFrame, in self.DOE_active.
+     
+     The user can only modify the pd.DataFrame matrices:
+     ANALYTICS_mode = "ON" will provide the dataset in self.DOE_active.
+     ANALYTICS_mode = "OFF" will provide the dataset in the local cache directly.
+     
+     ON/OFF will also assert dtype "Int64" and "float64" to some particular columns of their datasets to ensure that other features work.
+     self.RUN() requires "cycles" as "Int64"
+     REGRESSION,ANOVA,MODEL_ANALYSIS and plotting functions require "cycles" as "float64" and the ANALYTICS_mode features.
+     
+    The user can reset the pd.DataFrames by pulling from the DOE matrix stored as a list:
+    self.dataset_reset()
+    
+    """
+
     def dataset(self):  # returns what the active pointer is looking at
         if self._TEMP_DATA: return self.DOE_active
-        if not self._TEMP_DATA: return getattr(self, self.DOE_cache[self.DOE_active_pointer - 1][1])
+        if not self._TEMP_DATA: return self.DOE_cache[self.DOE_active_pointer - 1][2]  # bug?
 
     def dataset_DOEmatrix(self):
         if self._TEMP_DATA: return self.DOE_active.iloc[:, :self.factor_count]
-        if not self._TEMP_DATA: return getattr(self, self.DOE_cache[self.DOE_active_pointer - 1][1]).iloc[:,
-                                       :self.factor_count]
+        if not self._TEMP_DATA: return self.DOE_cache[self.DOE_active_pointer - 1][2].iloc[:, :self.factor_count]
 
     def dataset_results(self):
         if self._TEMP_DATA: return self.DOE_active.iloc[:, self.factor_count:]
-        if not self._TEMP_DATA: return getattr(self, self.DOE_cache[self.DOE_active_pointer - 1][1]).iloc[:,
-                                       self.factor_count:]
+        if not self._TEMP_DATA: return self.DOE_cache[self.DOE_active_pointer - 1][2].iloc[:, self.factor_count:]
 
-    def dataset_reset(self):
-        self.ANALYTICS_mode()
-        self.DOE_active = getattr(self, self.DOE_cache[self.DOE_active_pointer - 1][1])
+    def dataset_reset(self,change_type=1):
+        """
+        Resets the data pulled in via data pointers.
+
+        if change_type 1 = self.DOE_active and the cached version will be reset to the original class attribute.
+        if change_type 2 = self.factor_DF will be reset TO THE CACHED VERSION.
+        if change_type 3 = both are reset.
+        :return:
+        """
+
+        if change_type == 1 or 3:
+            attribute_pull_DOE = getattr(self, self.DOE_cache[self.DOE_active_pointer - 1][1])
+            self.DOE_active = pd.DataFrame(attribute_pull_DOE, columns=self.factor_names)  # resets DOE_active
+            self.DOE_cache[self.DOE_active_pointer - 1][2] = self.DOE_active  # resets the DOE_cache
+
+        if change_type == 2 or 3:
+            self.factor_DF = self.factor_DF_cache[self.DOE_active_pointer - 1][2]
 
     def dataset_results_pointer(self):
         if self._LAZY_OUTPUT_SELECTION: return self.DOE_active.iloc[:, self.output_active_pointer]
@@ -845,6 +997,14 @@ class DataBall:
             yield self._LOCAL_STORAGE[filename]
 
     def _objectStates(self, name, states, return_cache=0):
+        """
+        A function that provides cyclical generator objects with name "name" and N "states" via itertools.cycle.
+        The function also caches the object states into self._GENERATOR_CACHE
+        :param name:
+        :param states:
+        :param return_cache:
+        :return:
+        """
         GENERATOR_CACHE = "_GENERATOR_CACHE"
         if return_cache == 1:
             return getattr(self, GENERATOR_CACHE)
@@ -861,73 +1021,84 @@ class DataBall:
 
     # DataBall mode switches -------------------------------------------------------------------------------
     def ANALYTICS_mode(self):
+
         name = "ANALYTICS"
         states = ["ON", "OFF"]
         GENERATOR_CACHE = "_GENERATOR_CACHE"
 
         self._objectStates(name, states)
-        state = next(getattr(self, GENERATOR_CACHE)[name])
+        analytics_state = next(getattr(self, GENERATOR_CACHE)[name])
 
-        if state == states[0]:  # i.e. "ON"
+        name2 = "dtype"
+        states2 = ["float64", "Int64"]
+        self._objectStates(name2, states2)
+        dtype_state = next(getattr(self, GENERATOR_CACHE)[name2])
+
+        if analytics_state == states[0]:  # i.e. "ON"
             self._TEMP_DATA = True
             self._LAZY_OUTPUT_SELECTION = True
-            print(f"analytics mode:{state}")
-            return state
-        elif state == states[1]:  # i.e. "OFF"
+            self.dataset()["cycles"] = self.dataset()["cycles"].astype(dtype_state)
+            print(f"analytics mode:{analytics_state}")
+            print(f"dataset dtypes: {dtype_state}")
+            return analytics_state
+
+        elif analytics_state == states[1]:  # i.e. "OFF"
             self._TEMP_DATA = False
             self._LAZY_OUTPUT_SELECTION = False
-            print(f"analytics mode:{state}")
-            return state
+            self.dataset()["cycles"] = self.dataset()["cycles"].astype(dtype_state)
+            print(f"analytics mode:{analytics_state}")
+            print(f"dataset dtypes: {dtype_state}")
+            return analytics_state
 
     # Input mapping function (Maps variables to pyDOE's DoE function format) -----------------------------------
     def _function_mapping(self, function):
-        function_map = \
-            {sobol: [self.factor_DF.loc["min"], self.factor_DF.loc["max"], int(input("How many runs for the sobol?")),
-                     self.factor_DF.shape[1]],
-             ff2n: [self.factor_count, self.factor_DF.loc["min"], self.factor_DF.loc["max"]],
-             fractionalFactorial: [self.factor_count, 4, self.factor_DF.loc["min"], self.factor_DF.loc["max"]]
-             }
+
+        data_package = []
+
+        if function == sobol:
+            data_package = [self.factor_DF.loc["min"], self.factor_DF.loc["max"], int(input("How many runs for the sobol?")),self.factor_DF.shape[1]]
+        elif function == fullFactorial2lvl:
+            data_package = [self.factor_count, self.factor_DF.loc["min"], self.factor_DF.loc["max"]]
+        elif function == fractionalFactorial2lvl:
+            data_package =[self.factor_count,int(input("What resolution for the design?")), self.factor_DF.loc["min"], self.factor_DF.loc["max"]]
+
         # factors, resolution, min, max
-        return function_map[function]
+        return data_package
 
     # DOE design generation, caching, updating & retrieval and simulation running functions ------------------------
-    def DOE_import(self, design, self_data=True, **kwargs):
+    def DOE_import(self, design):
         """
         Takes in a function via the design variable.
         Passes the function into function_mapping() to collect the arguments to pass into itself.
         Creates self."design<version>" variable to hold the updated DoE matrix, in int64 format.
         Creates self."design<version>.1" variable to hold the boilerplate DoE matrix.
         Caches the design and primes the DoE into the system (via pointer)
-
-        if self_data=False: (When you're importing data)
-
-
         """
 
         DOE_version = str(next(self._version(design.__name__)))
 
-        if self_data:
-            data_package = self._function_mapping(design)
-            setattr(self, design.__name__ + DOE_version,
-                    update_DOEmatrix_datatypes_int64(design(data_package)[0], **self.factor_class_integers))
-            setattr(self, design.__name__ + DOE_version + "a", design(data_package)[1])
+        data_package = self._function_mapping(design)  # gets a set of pre-defined arguments specific to design.
+        DOE_matrix_list, DOE_template_list = design(data_package) # passes the data_package into the function passed via design
+        DOE_matrix = pd.DataFrame(DOE_matrix_list, columns=self.factor_names)
+        DOE_matrix = Column_to_Int64(DOE_matrix, self.factor_class_integers)
+
+        DOE_template = pd.DataFrame(DOE_template_list, columns=self.factor_names)
+
+        setattr(self, design.__name__ + DOE_version, DOE_matrix_list)
+        setattr(self, design.__name__ + DOE_version + "a",DOE_template_list)
 
         print(self.__class__.__name__, ":", design.__name__ + DOE_version, "generated")
-        print(self.__class__.__name__, ":", design.__name__ + DOE_version + "a",
-              "generated ---> blank matrix")
+        print(self.__class__.__name__, ":", design.__name__ + DOE_version + "a", "generated ---> blank matrix")
 
         self.DOE_active_pointer = len(self.DOE_cache)  # sends the pointer to the top of the cache.
         self.DOE_active_pointer += 1  # adds 1 to mark the entry of a new DOE design.
-        self.DOE_cache.append(
-            [DOE_version, design.__name__ + DOE_version,
-             pd.DataFrame(getattr(self, design.__name__ + DOE_version), columns=self.factor_names)])
-        self.DOE_active = pd.DataFrame(getattr(self, design.__name__ + DOE_version), columns=self.factor_names)
 
-        self.DOE_active = self.DOE_active.astype({"cycles": int})
-        self.DOE_active = self.DOE_active.astype({"cycles": "Int64"})
+        self.DOE_cache.append([DOE_version, design.__name__ + DOE_version, DOE_matrix])
 
-        if not self_data:
-            pass
+        self.factor_DF_cache.append([DOE_version, "factor_DF_" + design.__name__ + DOE_version, self.factor_DF])
+
+        self.DOE_active = DOE_matrix
+
 
     def DOE_current_design(self, change=""):
         """
@@ -967,6 +1138,7 @@ class DataBall:
         transposed_DF = self.factor_DF.transpose()
 
         if not change:
+            print("Current factor_DF: ",self.factor_DF_cache[self.DOE_active_pointer - 1][1])
             print(self.factor_DF.transpose())
         if change:
             print("Factor range updates:")
@@ -975,7 +1147,7 @@ class DataBall:
                     try:
                         transposed_DF.loc[index, column] = int(input(f"{index} {column}:"))
                     except:
-                        transposed_DF.loc[index, column] = transposed_DF.loc[index, 2]
+                        pass # Doesn't update the value
 
         self.factor_DF = transposed_DF.transpose()
 
@@ -983,17 +1155,13 @@ class DataBall:
         """
         Runs Ben's PCR simulator.
         Runs the DOE design assigned by the pointer.
-
-        :param recent_design:
-        :param args:
-        :return:
         """
         while True:
             if self.ANALYTICS_mode() == "OFF":
                 break
 
         results = []
-        DOE_matrix = self.DOE_active
+        DOE_matrix = self.dataset()
         try:
             if type(int(hard_limit)) == int:
                 DOE_matrix = DOE_matrix.iloc[:int(hard_limit), :]  # truncates the DoE design
@@ -1006,8 +1174,8 @@ class DataBall:
 
         table_DF = self._DOE_extract_data(results)
 
-        setattr(self, self.DOE_cache[self.DOE_active_pointer - 1][1], table_DF)
-        self.DOE_active = self.dataset()
+        self.DOE_cache[self.DOE_active_pointer - 1][2] = table_DF
+        self.DOE_active = table_DF
 
     # data wrangling functions -----------------------------------------------------
     def _DOE_extract_data(self, data):
@@ -1096,7 +1264,7 @@ class DataBall:
 
     # data plotting functions -----------------------------------------------------
     @plot_stacking
-    def plot_byoutput(self,**kwargs):
+    def plot_byoutput(self, **kwargs):
 
         try:
             data = kwargs["dataset"]
@@ -1244,7 +1412,7 @@ class DataBall:
         return fg, axs
 
     @plot_stacking
-    def plot_withingroups(self, statistic=0,**kwargs):
+    def plot_withingroups(self, statistic=0, **kwargs):
         """
         Plots a statistic (e.g.0 for average,1 for std. dev) for each treatment level of a given test factor (i.e. a DOE mean, or DOE std.dev plot)
         :param statistic: "average", "std. dev."
@@ -1296,7 +1464,7 @@ class DataBall:
         factor_averages = average_by_level(generator)  # {factor1: [50], factor2: [23,45] ....}
 
         try:
-            fg, ax = [kwargs["fg"],kwargs["ax"]]
+            fg, ax = [kwargs["fg"], kwargs["ax"]]
         except:
             fg, ax = plt.subplots(figsize=(7, 4.5), layout="constrained")
 
@@ -1326,37 +1494,9 @@ class DataBall:
         for i in x:
             ax.axvline(i, color="gray", linewidth=0.1)
 
-        return fg,ax
+        return fg, ax
 
 
-# Decorators ---------------------------------------------------
-
-
-"""
-def plot_stacking(function):
-    def wrapper(*args,**kwargs):
-        fg,ax = function(*args)
-        for i in kwargs["add"]:
-            fg,ax = function(i[0],i[1],fg=fg,ax=ax)
-        plt.show()
-    return wrapper
-
-@plot_stacking
-def test_plot(a,b,**kwargs):
-    x = np.linspace(1,a,num=10)
-    y = np.geomspace(1,b,num=10)
-    try:
-        fg, ax = [kwargs["fg"],kwargs["ax"]]
-    except:
-        fg, ax = plt.subplots()
-        
-    ax.scatter(x,y)
-        
-    return fg, ax
-
-test_plot(4,400,add=[[2,50],[4,100]])
-
-"""
 
 ## script execution ----------------------------------
 
