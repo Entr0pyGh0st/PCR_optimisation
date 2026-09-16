@@ -19,8 +19,6 @@ This repo seeks to interface his model with pyDOE, a python module for experimen
 
 # Bugs:
 
-instance.DOE_current_design() will override temp file work enabled by instance.ANALYTICS_mode()
-
 
 # Future features:
 
@@ -41,6 +39,18 @@ DOE_update(True) followed by DOE_import(sobol) # 1st function call updates the m
 
 ```
 
+Data Generation - DOE designs:
+```python
+Different DOE designs can be readily imported via instance.DOE_import(). To do this, you must pass the function as a keyword into instance.DOE_import().
+
+instance.DOE_import(sobol) - Imports a quasi-random low-discrepancy sobol sequence. number of runs must be specified.
+instance.DOE_import(fractionalFactorial2lvl) - Imports a 2 level fractional Factorial design. The resolution of the design must be specified. Note that the function generates the minimum viable design to reach a specified resolution, i.e. uses the minimum amount of main factors to achieve aliasing of the remainder of the factors.
+instance.DOE_import(fullFactorial2lvl) - imports a 12-factor full factorial design. The goal is not to run the full design, it's to be able to slice the DOE matrix at your convenience to get full resolution for some factors. slicing is only currently possible by self assignment over instance.dataset().
+
+
+```
+
+
 Data Exporting - Saving a dataset:
 ```python
 instance.exportToDirectory() # generates a "year_month_date - Results Folder" in curdir and saves results as sobol1.csv
@@ -56,9 +66,10 @@ instance.importFromDirectory()
 ~~~ input request: # select folder and FILE.csv through interactive menu.
 ~~~ input request: # Designate the number of input columns in the dataset (test factors).
 ~~~ input request: # Designate the number of output columns in teh dataset (results columns).
+~~~ input request: # if ANALYTICS.mode() is on, it will ask if you want to override your temp data.
 
-# creates a DataBall variable named: self.FILE_import<version> of type pd.DataFrame, and puts it into a cache.
-# creates a self.factor_DF file containing the information of the factors imported, and put its into a cache.
+# creates a DataBall variable named: self.FILENAME_import<version> of type pd.DataFrame, and puts it into a cache.
+# creates a self.factor_DF_FILENAME<version> file containing the information of the factors imported, and put its into a cache.
 ```
 
 Data selection (IMPORTANT)
@@ -82,11 +93,15 @@ instance.dataset_reset() # resets heightened states and work done under them. Br
 
 Data visualisation:
 ```python
-instance.plot() # 4 scatterplots, 1 per PCR result type. (y = PCR result // x = test run nr.)
-instance.plot_byfactor(x_factors,regression_coefficients) # 12 scatterplots, 1 per factor. (y = PCR result // x = factor values) ## ONLY PLOTS DNA YIELD CURRENTLY.
-# regression coefficients can be generated through the ANOVA class.
-instance.plot_distribution(factor): 4 scatterplots: Normal Probability plot, Histogram, residuals by row, residuals by predicted. 
+instance.plot_byoutput() # Plots 4 scatter plots, 1 per output of the model. the x axis is the nr. of runs of your design.
+instance.plot_byfactor(x_factors,regression_coefficients) # Plots 12 scatter plots, 1 per test factor. x axis is your factor, y axis is DNA yield only.
+# regression coefficients can be generated through the ANOVA class and passed into the function to see the plotted linear regressions.
+instance.plot_distributions(factor): 4 scatterplots: Normal Probability plot, Histogram, residuals by row, residuals by predicted. Data needs to be sorted for normal probability plot. Note that the last plot needs a predicted column, which can only be generated if you run linear regression.
+instance.plot_withingroups(statistic=0): 1 plot: A comparison of a given statistic for an output result (DNA yield only) between each treatment levels of a test factor. In other words, a DOE plot. The DOE plot can be used to plot average results between treatments (statistic = 0) or standard deviations between treatments (statistic = 1).
 
+PLOT STACKING: (instance.plot_byoutput(), .plot_distributions(factor), .plot_withingroups(statistic=0) 
+These functions accept external data from other DataBall objects so that it can be overlayed into a single plot.
+To stack plots, pass add=[DataBall2.dataset()]. For example DataBall1.plot_byoutput(add=[Databall2.dataset()]). Note that DataBall.ANALYTICS_mode() will mediate if the temp work data (if "ON") or cache data (if "OFF") will be used in EITHER of the Databall objects.
 
 ```
 
